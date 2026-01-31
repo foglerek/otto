@@ -1,0 +1,33 @@
+{
+  "name": "@otto/ui-opentui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --version > /dev/null",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\""
+  },
+  "dependencies": {
+    "@otto/ports": "workspace:*",
+    "@opentui/core": "0.1.75",
+    "@opentui/react": "0.1.75",
+    "react": "^19.0.0",
+    "react-devtools-core": "^7.0.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

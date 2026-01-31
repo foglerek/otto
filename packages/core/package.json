@@ -1,0 +1,34 @@
+{
+  "name": "@otto/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "otto": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --version > /dev/null",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\""
+  },
+  "dependencies": {
+    "@otto/config": "workspace:*",
+    "@otto/ports": "workspace:*",
+    "@otto/ui-opentui": "workspace:*",
+    "jiti": "^2.4.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

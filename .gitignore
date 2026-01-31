@@ -1,0 +1,14 @@
+node_modules
+coverage
+.internal
+.opencode
+
+.otto/
+
+.turbo
+
+dist/
+*.tsbuildinfo
+.DS_Store
+
+.worktrees/
