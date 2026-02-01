@@ -9,8 +9,9 @@ import {
   getRunDir,
   getWorktreePlanFilePath,
 } from "../paths.js";
-import { techLeadMicroRetry } from "../micro-retry.js";
+import { sessionMicroRetry, techLeadMicroRetry } from "../micro-retry.js";
 import { generateDecisionCards } from "../decision-cards.js";
+import { hasOkSentinel } from "../sentinels.js";
 
 function ensureWorkflowState(
   runtime: OttoWorkflowRuntime,
@@ -93,18 +94,40 @@ export async function runAskIngestionPhase(args: {
     planFilePath,
   });
 
-  const result = await args.runtime.runners.lead.run({
-    role: "lead",
-    phaseName: "ask-ingestion",
-    prompt,
-    cwd: args.runtime.state.worktree.worktreePath,
-    exec: args.runtime.exec,
-    sessionId: wf.techLeadSessionId,
-    timeoutMs: 15 * 60_000,
-  });
+  const runOnce = async (sessionId?: string) =>
+    await args.runtime.runners.lead.run({
+      role: "lead",
+      phaseName: "ask-ingestion",
+      prompt,
+      cwd: args.runtime.state.worktree.worktreePath,
+      exec: args.runtime.exec,
+      sessionId,
+      timeoutMs: 15 * 60_000,
+    });
+
+  let sessionId = wf.techLeadSessionId;
+  let result = await runOnce(sessionId);
+  if (sessionId && result.contextOverflow) {
+    delete wf.techLeadSessionId;
+    await args.runtime.stateStore.save();
+    sessionId = undefined;
+    result = await runOnce(undefined);
+  }
 
   if (!result.success) {
     throw new Error(result.error ?? "Ask ingestion failed.");
+  }
+
+  if (!hasOkSentinel(result.outputText)) {
+    const ok = await sessionMicroRetry({
+      runtime: args.runtime,
+      role: "lead",
+      sessionId: result.sessionId ?? sessionId ?? null,
+      message: "Reply with <OK> only when ask ingestion is complete.",
+    });
+    if (!ok) {
+      throw new Error("Ask ingestion missing <OK> sentinel.");
+    }
   }
 
   await args.runtime.stateStore.update((draft) => {

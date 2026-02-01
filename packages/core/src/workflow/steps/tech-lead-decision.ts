@@ -239,6 +239,7 @@ export async function executeTechLeadDecision(args: {
       sessionId: args.runtime.state.workflow?.techLeadSessionId ?? null,
       message: "Provide your decision tag.",
       replyWith,
+      requiredPattern: /<DECISION>[\s\S]*<\/DECISION>/i,
     });
     return null;
   }

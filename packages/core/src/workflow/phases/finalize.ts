@@ -4,8 +4,10 @@ import path from "node:path";
 import type { OttoWorkflowRuntime } from "../runtime.js";
 import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { fileExistsAndHasContent } from "../file-utils.js";
-import { getPlanFilePath, getRunDir } from "../paths.js";
+import { getPlanFilePath, getRunDir, toWorktreePath } from "../paths.js";
 import { sanitizeAbsolutePathsInMarkdown } from "../sanitize-markdown.js";
+import { sessionMicroRetry } from "../micro-retry.js";
+import { hasOkSentinel } from "../sentinels.js";
 
 async function git(
   runtime: OttoWorkflowRuntime,
@@ -78,18 +80,42 @@ export async function runFinalizePhase(args: {
     "<system-reminder>Use the exact paths given to you to read and write the input and output files.</system-reminder>",
   ].join("\n");
 
-  const result = await args.runtime.runners.lead.run({
-    role: "lead",
-    phaseName: "finalize",
-    prompt,
-    cwd: args.runtime.state.worktree.worktreePath,
-    exec: args.runtime.exec,
-    sessionId: args.runtime.state.workflow?.techLeadSessionId,
-    timeoutMs: 15 * 60_000,
-  });
+  const runOnce = async (sessionId?: string) =>
+    await args.runtime.runners.lead.run({
+      role: "lead",
+      phaseName: "finalize",
+      prompt,
+      cwd: args.runtime.state.worktree.worktreePath,
+      exec: args.runtime.exec,
+      sessionId,
+      timeoutMs: 15 * 60_000,
+    });
+
+  let sessionId = args.runtime.state.workflow?.techLeadSessionId;
+  let result = await runOnce(sessionId);
+  if (sessionId && result.contextOverflow) {
+    if (args.runtime.state.workflow) {
+      delete args.runtime.state.workflow.techLeadSessionId;
+      await args.runtime.stateStore.save();
+    }
+    sessionId = undefined;
+    result = await runOnce(undefined);
+  }
 
   if (!result.success) {
     throw new Error(result.error ?? "Finalize failed.");
+  }
+
+  if (!hasOkSentinel(result.outputText)) {
+    const ok = await sessionMicroRetry({
+      runtime: args.runtime,
+      role: "lead",
+      sessionId: result.sessionId ?? sessionId ?? null,
+      message: "Reply with <OK> only when finalization is complete.",
+    });
+    if (!ok) {
+      throw new Error("Finalize missing <OK> sentinel.");
+    }
   }
 
   if (args.runtime.state.workflow) {
@@ -98,7 +124,28 @@ export async function runFinalizePhase(args: {
   }
 
   if (!fileExistsAndHasContent(finalReportPath)) {
-    throw new Error(`Final report missing or empty: ${finalReportPath}`);
+    const worktreeFinalReportPath = toWorktreePath({
+      state: args.runtime.state,
+      mainRepoFilePath: finalReportPath,
+    });
+    if (
+      worktreeFinalReportPath &&
+      fileExistsAndHasContent(worktreeFinalReportPath)
+    ) {
+      args.runtime.reminders.techLead.push(
+        `You wrote Otto artifacts under the worktree. Create the final report at: ${finalReportPath}`,
+      );
+      await sessionMicroRetry({
+        runtime: args.runtime,
+        role: "lead",
+        sessionId: args.runtime.state.workflow?.techLeadSessionId ?? null,
+        message: `Move or recreate the final report at ${finalReportPath} and reply with <OK>.`,
+      });
+    }
+
+    if (!fileExistsAndHasContent(finalReportPath)) {
+      throw new Error(`Final report missing or empty: ${finalReportPath}`);
+    }
   }
 
   // Sanitize absolute paths in artifacts we wrote.

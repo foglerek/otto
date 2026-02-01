@@ -136,6 +136,7 @@ export async function executeIntegratedTaskLoop(args: {
       runtime: args.runtime,
       taskFile,
       reportFilePath: taskExec.reportFilePath,
+      sessionId: taskExec.sessionId,
     });
 
     const reviewPath = await executeTaskReview({

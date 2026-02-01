@@ -4,6 +4,7 @@ import type { OttoWorkflowRuntime } from "../runtime.js";
 import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { getRunDir, toWorktreePath } from "../paths.js";
 import { sessionMicroRetry } from "../micro-retry.js";
+import { hasOkSentinel } from "../sentinels.js";
 
 function directoryHasTaskFiles(directory: string): boolean {
   try {
@@ -13,6 +14,83 @@ function directoryHasTaskFiles(directory: string): boolean {
   } catch {
     return false;
   }
+}
+
+type LeadRunResult = {
+  success: boolean;
+  sessionId?: string;
+  outputText?: string;
+  error?: string;
+  contextOverflow?: boolean;
+};
+
+async function runLeadTaskSplitting(args: {
+  runtime: OttoWorkflowRuntime;
+  prompt: string;
+}): Promise<{ result: LeadRunResult; sessionIdForRetry: string | null }> {
+  const initialSessionId = args.runtime.state.workflow?.techLeadSessionId;
+  const runOnce = async (sessionId?: string) =>
+    (await args.runtime.runners.lead.run({
+      role: "lead",
+      phaseName: "task-splitting",
+      prompt: args.prompt,
+      cwd: args.runtime.state.worktree.worktreePath,
+      exec: args.runtime.exec,
+      sessionId,
+      timeoutMs: 10 * 60_000,
+    })) as LeadRunResult;
+
+  let result = await runOnce(initialSessionId);
+  if (initialSessionId && result.contextOverflow) {
+    if (args.runtime.state.workflow) {
+      delete args.runtime.state.workflow.techLeadSessionId;
+      await args.runtime.stateStore.save();
+    }
+    result = await runOnce(undefined);
+  }
+
+  return {
+    result,
+    sessionIdForRetry: result.sessionId ?? initialSessionId ?? null,
+  };
+}
+
+async function ensureLeadOkSentinel(args: {
+  runtime: OttoWorkflowRuntime;
+  sessionIdForRetry: string | null;
+  result: LeadRunResult;
+  message: string;
+}): Promise<boolean> {
+  if (hasOkSentinel(args.result.outputText)) return true;
+  return await sessionMicroRetry({
+    runtime: args.runtime,
+    role: "lead",
+    sessionId: args.sessionIdForRetry,
+    message: args.message,
+  });
+}
+
+async function tryFixWrongDirTaskFiles(args: {
+  runtime: OttoWorkflowRuntime;
+  runDir: string;
+}): Promise<boolean> {
+  const worktreeRunDir = toWorktreePath({
+    state: args.runtime.state,
+    mainRepoFilePath: args.runDir,
+  });
+  if (!worktreeRunDir) return false;
+  if (!directoryHasTaskFiles(worktreeRunDir)) return false;
+
+  args.runtime.reminders.techLead.push(
+    `Task files must be written to ${args.runDir}. You wrote them under the worktree. Move or recreate them at the main repo path.`,
+  );
+  const ok = await sessionMicroRetry({
+    runtime: args.runtime,
+    role: "lead",
+    sessionId: args.runtime.state.workflow?.techLeadSessionId ?? null,
+    message: `Move or recreate your task files at ${args.runDir} (absolute path) and reply with <OK>.`,
+  });
+  return ok && directoryHasTaskFiles(args.runDir);
 }
 
 export async function runTaskSplittingPhase(args: {
@@ -33,14 +111,9 @@ export async function runTaskSplittingPhase(args: {
   ].join("\n");
 
   while (true) {
-    const result = await args.runtime.runners.lead.run({
-      role: "lead",
-      phaseName: "task-splitting",
+    const { result, sessionIdForRetry } = await runLeadTaskSplitting({
+      runtime: args.runtime,
       prompt: taskSplitPrompt,
-      cwd: args.runtime.state.worktree.worktreePath,
-      exec: args.runtime.exec,
-      sessionId: args.runtime.state.workflow?.techLeadSessionId,
-      timeoutMs: 10 * 60_000,
     });
 
     if (!result.success) {
@@ -49,6 +122,23 @@ export async function runTaskSplittingPhase(args: {
         { defaultValue: true },
       );
       if (!retry) throw new Error(result.error ?? "Task splitting failed.");
+      continue;
+    }
+
+    const ok = await ensureLeadOkSentinel({
+      runtime: args.runtime,
+      sessionIdForRetry,
+      result,
+      message: "Reply with <OK> only when task splitting is complete.",
+    });
+    if (!ok) {
+      const retry = await args.runtime.prompt.confirm(
+        "Task splitting missing <OK>. Retry?",
+        { defaultValue: true },
+      );
+      if (!retry) {
+        throw new Error("Task splitting missing <OK> sentinel.");
+      }
       continue;
     }
 
@@ -61,23 +151,8 @@ export async function runTaskSplittingPhase(args: {
       return;
     }
 
-    const worktreeRunDir = toWorktreePath({
-      state: args.runtime.state,
-      mainRepoFilePath: runDir,
-    });
-    if (worktreeRunDir && directoryHasTaskFiles(worktreeRunDir)) {
-      args.runtime.reminders.techLead.push(
-        `Task files must be written to ${runDir}. You wrote them under the worktree. Move or recreate them at the main repo path.`,
-      );
-      const ok = await sessionMicroRetry({
-        runtime: args.runtime,
-        role: "lead",
-        sessionId: args.runtime.state.workflow?.techLeadSessionId ?? null,
-        message: `Move or recreate your task files at ${runDir} (absolute path) and reply with <OK>.`,
-      });
-      if (ok && directoryHasTaskFiles(runDir)) {
-        return;
-      }
+    if (await tryFixWrongDirTaskFiles({ runtime: args.runtime, runDir })) {
+      return;
     }
 
     const retryMissing = await args.runtime.prompt.confirm(

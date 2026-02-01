@@ -2,10 +2,13 @@ import type { OttoWorkflowRuntime } from "../runtime.js";
 import {
   ensureDecisionCards,
   generateDecisionCards,
+  type DecisionCardsDocument,
 } from "../decision-cards.js";
 import { reviewDecisionCards } from "../decision-card-review.js";
+import { sessionMicroRetry } from "../micro-retry.js";
 import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { getDecisionCardsPath, getPlanFilePath } from "../paths.js";
+import { hasOkSentinel } from "../sentinels.js";
 
 function buildDecisionCardFeedback(summary: {
   openQuestions: Array<{ id: string; question: string; answer: string }>;
@@ -54,6 +57,87 @@ async function maybeRetry(
   });
 }
 
+async function applyDecisionCardsPlanUpdate(args: {
+  runtime: OttoWorkflowRuntime;
+  planFilePath: string;
+  decisionCardsPath: string;
+  feedbackInput: string;
+  existingCards: DecisionCardsDocument;
+}): Promise<void> {
+  const feedbackPrompt = [
+    getTechLeadSystemReminder(args.runtime, "planning"),
+    "<INSTRUCTIONS>",
+    `Update ${args.planFilePath} based on decision card feedback in <INPUT>.`,
+    "Reply <OK> when done.",
+    "</INSTRUCTIONS>",
+    "<INPUT>",
+    args.feedbackInput,
+    "</INPUT>",
+  ].join("\n");
+
+  while (true) {
+    const runOnce = async (sessionId?: string) =>
+      await args.runtime.runners.lead.run({
+        role: "lead",
+        phaseName: "decision-cards-feedback",
+        prompt: feedbackPrompt,
+        cwd: args.runtime.state.worktree.worktreePath,
+        exec: args.runtime.exec,
+        sessionId,
+        timeoutMs: 10 * 60_000,
+      });
+
+    let sessionId = args.runtime.state.workflow?.techLeadSessionId;
+    let result = await runOnce(sessionId);
+    if (sessionId && result.contextOverflow) {
+      if (args.runtime.state.workflow) {
+        delete args.runtime.state.workflow.techLeadSessionId;
+        await args.runtime.stateStore.save();
+      }
+      sessionId = undefined;
+      result = await runOnce(undefined);
+    }
+
+    if (!result.success) {
+      const retry = await maybeRetry(args.runtime, "Decision card feedback");
+      if (!retry) {
+        throw new Error(result.error ?? "Decision card feedback failed.");
+      }
+      continue;
+    }
+
+    if (!hasOkSentinel(result.outputText)) {
+      const ok = await sessionMicroRetry({
+        runtime: args.runtime,
+        role: "lead",
+        sessionId: result.sessionId ?? sessionId ?? null,
+        message: "Reply with <OK> only when the plan update is complete.",
+      });
+      if (!ok) {
+        const retry = await maybeRetry(args.runtime, "Decision card feedback");
+        if (!retry) {
+          throw new Error("Decision card feedback missing <OK> sentinel.");
+        }
+        continue;
+      }
+    }
+
+    if (args.runtime.state.workflow) {
+      args.runtime.state.workflow.techLeadSessionId = result.sessionId;
+      await args.runtime.stateStore.save();
+    }
+
+    await generateDecisionCards({
+      runtime: args.runtime,
+      planFilePath: args.planFilePath,
+      decisionCardsPath: args.decisionCardsPath,
+      existingCards: args.existingCards,
+    });
+
+    return;
+  }
+}
+
 export async function runDecisionCardsGatePhase(args: {
   runtime: OttoWorkflowRuntime;
 }): Promise<void> {
@@ -80,50 +164,14 @@ export async function runDecisionCardsGatePhase(args: {
     }
 
     const feedbackInput = buildDecisionCardFeedback(reviewSummary);
-    const feedbackPrompt = [
-      getTechLeadSystemReminder(args.runtime, "planning"),
-      "<INSTRUCTIONS>",
-      `Update ${planFilePath} based on decision card feedback in <INPUT>.`,
-      "Reply <OK> when done.",
-      "</INSTRUCTIONS>",
-      "<INPUT>",
+
+    await applyDecisionCardsPlanUpdate({
+      runtime: args.runtime,
+      planFilePath,
+      decisionCardsPath,
       feedbackInput,
-      "</INPUT>",
-    ].join("\n");
-
-    while (true) {
-      const result = await args.runtime.runners.lead.run({
-        role: "lead",
-        phaseName: "decision-cards-feedback",
-        prompt: feedbackPrompt,
-        cwd: args.runtime.state.worktree.worktreePath,
-        exec: args.runtime.exec,
-        sessionId: args.runtime.state.workflow?.techLeadSessionId,
-        timeoutMs: 10 * 60_000,
-      });
-
-      if (!result.success) {
-        const retry = await maybeRetry(args.runtime, "Decision card feedback");
-        if (!retry) {
-          throw new Error(result.error ?? "Decision card feedback failed.");
-        }
-        continue;
-      }
-
-      if (args.runtime.state.workflow) {
-        args.runtime.state.workflow.techLeadSessionId = result.sessionId;
-        await args.runtime.stateStore.save();
-      }
-
-      await generateDecisionCards({
-        runtime: args.runtime,
-        planFilePath,
-        decisionCardsPath,
-        existingCards: reviewSummary.updatedCards,
-      });
-
-      break;
-    }
+      existingCards: reviewSummary.updatedCards,
+    });
   }
 
   throw new Error("Decision cards gate exceeded max iterations.");
