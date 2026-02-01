@@ -7,6 +7,8 @@ import {
 
 import type { OttoRole } from "@otto/ports";
 
+import { OK_SENTINEL_PATTERN } from "./sentinels.js";
+
 function getReminderForRole(
   runtime: OttoWorkflowRuntime,
   role: OttoRole,
@@ -40,10 +42,12 @@ export async function sessionMicroRetry(args: {
   role: OttoRole;
   timeoutMs?: number;
   replyWith?: string;
+  requiredPattern?: RegExp;
 }): Promise<boolean> {
   if (!args.sessionId) return false;
 
   const replyWith = args.replyWith ?? "<OK>";
+  const requiredPattern = args.requiredPattern ?? OK_SENTINEL_PATTERN;
 
   const prompt = [
     getReminderForRole(args.runtime, args.role),
@@ -68,6 +72,10 @@ export async function sessionMicroRetry(args: {
   });
 
   if (result.success) {
+    const output = result.outputText ?? "";
+    if (!requiredPattern.test(output)) {
+      return false;
+    }
     if (args.role === "lead") {
       await persistLeadSession(args.runtime, result.sessionId);
     }

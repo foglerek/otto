@@ -40,10 +40,6 @@ function getModelConfig(role: OttoRunnerRunOptions["role"]): ModelConfig {
   return { model: "claude-sonnet-4-5", thinking: false };
 }
 
-function hasOkSentinel(text: string): boolean {
-  return /\n<OK>\s*$/m.test(text);
-}
-
 function toJsonSchemaArg(schema: unknown): string | null {
   if (schema === undefined) return null;
   if (typeof schema === "string") return schema;
@@ -187,18 +183,6 @@ class ClaudeCodeRunner implements OttoRunner {
         timedOut: execResult.timedOut,
         contextOverflow,
         error: parsed.finalText,
-      };
-    }
-
-    const wantsOk = /<OK>/i.test(options.prompt);
-    if (wantsOk && !hasOkSentinel(parsed.finalText)) {
-      return {
-        success: false,
-        sessionId: parsed.sessionId,
-        outputText: parsed.finalText,
-        timedOut: execResult.timedOut,
-        contextOverflow,
-        error: "Missing <OK> sentinel in runner output.",
       };
     }
 
