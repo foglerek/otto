@@ -52,6 +52,11 @@ export interface OttoQualityConfig {
   adapter: OttoQualityGateAdapter;
 }
 
+export interface OttoIntegrationConfig {
+  checks: OttoQualityCheck[];
+  adapter?: OttoQualityGateAdapter;
+}
+
 export interface OttoWorktreeConfig {
   baseBranch: string;
   worktreesDir?: string;
@@ -71,6 +76,10 @@ export interface OttoConfig {
   runners: OttoRunnersConfig;
 
   quality?: OttoQualityConfig;
+
+  // Post-merge / integration-only checks (optional). If adapter is omitted,
+  // Otto will fall back to `quality.adapter`.
+  integration?: OttoIntegrationConfig;
 
   prompt?: {
     adapter: OttoPromptAdapter;

@@ -7,6 +7,9 @@ import { runPlanFeedbackPhase } from "./phases/plan-feedback.js";
 import { runTaskSplittingPhase } from "./phases/task-splitting.js";
 import { runTaskFeedbackPhase } from "./phases/task-feedback.js";
 import { runExecutionPhase } from "./phases/execution.js";
+import { runUserFeedbackPhase } from "./phases/user-feedback.js";
+import { runIntegrationPhase } from "./phases/integration.js";
+import { runFinalizePhase } from "./phases/finalize.js";
 
 function ensureWorkflowPhase(runtime: OttoWorkflowRuntime): OttoWorkflowPhase {
   if (!runtime.state.workflow) {
@@ -89,6 +92,40 @@ export async function runWorkflowOrchestrator(args: {
       await runExecutionPhase({ runtime: args.runtime });
       await setPhase(args.runtime, "user-feedback");
       continue;
+    }
+
+    if (phase === "user-feedback") {
+      const { reenterExecution } = await runUserFeedbackPhase({
+        runtime: args.runtime,
+      });
+      await setPhase(
+        args.runtime,
+        reenterExecution ? "execution" : "integration",
+      );
+      continue;
+    }
+
+    if (phase === "integration") {
+      const result = await runIntegrationPhase({ runtime: args.runtime });
+      if (result.tasksCreated) {
+        await setPhase(args.runtime, "execution");
+        continue;
+      }
+      if (result.aborted) {
+        return { stoppedAtPhase: "integration" };
+      }
+      await setPhase(args.runtime, "finalize");
+      continue;
+    }
+
+    if (phase === "finalize") {
+      await runFinalizePhase({ runtime: args.runtime });
+      await setPhase(args.runtime, "cleanup");
+      continue;
+    }
+
+    if (phase === "cleanup") {
+      return { stoppedAtPhase: "cleanup" };
     }
 
     return { stoppedAtPhase: phase };
