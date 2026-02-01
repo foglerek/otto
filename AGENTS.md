@@ -66,7 +66,9 @@ Keep the boundary clean:
 - Install deps: `bun install`
 - Build: `bun run build`
 - Run CLI locally: `bun run otto -- --help`
+- Fast CLI (dev): `bun run otto:dev -- --help`
 - Bootstrap a worktree (scaffold): `bun run otto -- bootstrap --slug <slug> --ask "..."`
+- Done means: `bun run lint && bun run typecheck && bun run test`
 
 ### UI
 
@@ -77,3 +79,4 @@ Keep the boundary clean:
 ## Learnings
 
 - Keep the kernel behavior-focused; treat tooling specifics as adapter implementation detail.
+- OpenTUI runtime requires Bun; ship as Bun-compiled binaries (+ Node shim) so users don't need Bun.

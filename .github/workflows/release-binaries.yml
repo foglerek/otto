@@ -1,0 +1,70 @@
+name: release-binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            artifactName: otto-darwin-arm64
+            binaryPath: packages/core/bin/otto-darwin-arm64
+          - runner: macos-13
+            artifactName: otto-darwin-x64
+            binaryPath: packages/core/bin/otto-darwin-x64
+          - runner: ubuntu-latest
+            artifactName: otto-linux-x64
+            binaryPath: packages/core/bin/otto-linux-x64
+          - runner: windows-latest
+            artifactName: otto-windows-x64.exe
+            binaryPath: packages/core/bin/otto-windows-x64.exe
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run otto:build
+
+      - name: Compile binary
+        run: node packages/core/script/ensure-binary.js
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifactName }}
+          path: ${{ matrix.binaryPath }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

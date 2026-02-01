@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "bin": {
-    "otto": "./dist/cli.js"
+    "otto": "./bin/otto.js"
   },
   "exports": {
     ".": {
@@ -18,7 +18,11 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "compile": "node script/build-binary.js",
+    "build:compile": "bun run build && node script/build-binary.js",
+    "ensure:binary": "node script/ensure-binary.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --ext .ts,.tsx --max-warnings=0",
     "test": "node --version > /dev/null",
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\""
   },
@@ -27,6 +31,14 @@
     "@otto/ports": "workspace:*",
     "@otto/ui-opentui": "workspace:*",
     "jiti": "^2.4.2"
+  },
+  "optionalDependencies": {
+    "@otto/core-darwin-arm64": "workspace:*",
+    "@otto/core-darwin-x64": "workspace:*",
+    "@otto/core-linux-arm64": "workspace:*",
+    "@otto/core-linux-x64": "workspace:*",
+    "@otto/core-windows-arm64": "workspace:*",
+    "@otto/core-windows-x64": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

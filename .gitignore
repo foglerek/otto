@@ -12,3 +12,9 @@ dist/
 .DS_Store
 
 .worktrees/
+
+# Built Otto binaries (do not commit)
+packages/core/bin/otto-*
+packages/core/bin/otto-*.exe
+packages/core-*/bin/otto
+packages/core-*/bin/otto.exe

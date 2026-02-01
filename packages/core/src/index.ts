@@ -90,9 +90,122 @@ export async function loadOttoConfig(configPath?: string): Promise<OttoConfig> {
   return cfg;
 }
 
+type CommandHandler = (rest: string[]) => Promise<void>;
+
+async function handleBootstrapCommand(rest: string[]): Promise<void> {
+  const configPath = getFlagValue(rest, "--config");
+  const config = await loadOttoConfig(configPath);
+
+  if (!config.worktree?.adapter) {
+    throw new Error("otto config must provide worktree.adapter");
+  }
+  if (!config.runners?.default) {
+    throw new Error("otto config must provide runners.default");
+  }
+
+  const slug = getFlagValue(rest, "--slug");
+  const date = getFlagValue(rest, "--date");
+  const askText = getFlagValue(rest, "--ask");
+
+  const result = await runBootstrap({
+    cwd: process.cwd(),
+    config,
+    configPath,
+    slug,
+    date,
+    askText,
+  });
+
+  process.stdout.write(
+    [
+      "Bootstrapped Otto run.",
+      `- Artifact root: ${result.artifactRootDir}`,
+      `- Ask: ${result.askFilePath}`,
+      `- Worktree: ${result.worktreePath}`,
+      `- Branch: ${result.branchName}`,
+      `- State: ${result.stateFile}`,
+      "",
+    ].join("\n"),
+  );
+}
+
+async function handleRunCommand(rest: string[]): Promise<void> {
+  const statePath = getFlagValue(rest, "--state");
+  if (!statePath) {
+    throw new Error("otto run requires --state <path>");
+  }
+  const state = await loadOttoState(statePath);
+
+  const configPathOverride = getFlagValue(rest, "--config");
+  const resolvedConfigPath = resolveConfigPathFromState({
+    state,
+    overridePath: configPathOverride,
+  });
+
+  const config = await loadOttoConfig(resolvedConfigPath);
+  if (!config.worktree?.adapter) {
+    throw new Error("otto config must provide worktree.adapter");
+  }
+  if (!config.runners?.default) {
+    throw new Error("otto config must provide runners.default");
+  }
+
+  const { planFilePath } = await runOttoRun({ state, config });
+  process.stdout.write(
+    [
+      "Created plan artifact.",
+      `- State: ${path.resolve(statePath)}`,
+      `- Plan: ${planFilePath}`,
+      "",
+    ].join("\n"),
+  );
+}
+
+async function handleCleanupCommand(rest: string[]): Promise<void> {
+  const statePath = getFlagValue(rest, "--state");
+  if (!statePath) {
+    throw new Error("otto cleanup requires --state <path>");
+  }
+  const state = await loadOttoState(statePath);
+
+  const configPathOverride = getFlagValue(rest, "--config");
+  const resolvedConfigPath = resolveConfigPathFromState({
+    state,
+    overridePath: configPathOverride,
+  });
+
+  const config = await loadOttoConfig(resolvedConfigPath);
+  const prompt = config.prompt?.adapter ?? createOpentuiPromptAdapter();
+  if (!prompt) {
+    throw new Error("otto requires a prompt adapter");
+  }
+
+  const force = hasFlag(rest, "--force");
+  const deleteBranch = hasFlag(rest, "--delete-branch");
+  const deleteArtifacts = hasFlag(rest, "--delete-artifacts");
+
+  await runOttoCleanup({
+    state,
+    config,
+    prompt,
+    force,
+    deleteBranch,
+    deleteArtifacts,
+  });
+
+  process.stdout.write(
+    ["Cleanup complete.", `- State: ${path.resolve(statePath)}`, ""].join("\n"),
+  );
+}
+
+const commandHandlers: Record<string, CommandHandler> = {
+  bootstrap: handleBootstrapCommand,
+  run: handleRunCommand,
+  cleanup: handleCleanupCommand,
+};
+
 export async function runOttoCLI(argv: string[]): Promise<void> {
-  const args = new Set(argv);
-  const helpRequested = args.has("--help") || args.has("-h");
+  const helpRequested = argv.includes("--help") || argv.includes("-h");
   const { command, rest } = parseCommand(argv);
 
   if (helpRequested || command === "help") {
@@ -100,120 +213,10 @@ export async function runOttoCLI(argv: string[]): Promise<void> {
     return;
   }
 
-  if (command === "bootstrap") {
-    const configPath = getFlagValue(rest, "--config");
-    const config = await loadOttoConfig(configPath);
-    const prompt = config.prompt?.adapter ?? createOpentuiPromptAdapter();
-
-    if (!config.worktree?.adapter) {
-      throw new Error("otto config must provide worktree.adapter");
-    }
-    if (!config.runners?.default) {
-      throw new Error("otto config must provide runners.default");
-    }
-    if (!prompt) {
-      throw new Error("otto requires a prompt adapter");
-    }
-
-    const slug = getFlagValue(rest, "--slug");
-    const date = getFlagValue(rest, "--date");
-    const askText = getFlagValue(rest, "--ask");
-
-    const result = await runBootstrap({
-      cwd: process.cwd(),
-      config,
-      configPath,
-      slug,
-      date,
-      askText,
-    });
-
-    process.stdout.write(
-      [
-        "Bootstrapped Otto run.",
-        `- Artifact root: ${result.artifactRootDir}`,
-        `- Ask: ${result.askFilePath}`,
-        `- Worktree: ${result.worktreePath}`,
-        `- Branch: ${result.branchName}`,
-        `- State: ${result.stateFile}`,
-        "",
-      ].join("\n"),
-    );
-    return;
+  const handler = commandHandlers[command];
+  if (!handler) {
+    throw new Error(`Unknown command: ${command}`);
   }
 
-  if (command === "run") {
-    const statePath = getFlagValue(rest, "--state");
-    if (!statePath) {
-      throw new Error("otto run requires --state <path>");
-    }
-    const state = await loadOttoState(statePath);
-
-    const configPathOverride = getFlagValue(rest, "--config");
-    const resolvedConfigPath = resolveConfigPathFromState({
-      state,
-      overridePath: configPathOverride,
-    });
-
-    const config = await loadOttoConfig(resolvedConfigPath);
-    if (!config.worktree?.adapter) {
-      throw new Error("otto config must provide worktree.adapter");
-    }
-    if (!config.runners?.default) {
-      throw new Error("otto config must provide runners.default");
-    }
-
-    const { planFilePath } = await runOttoRun({ state, config });
-    process.stdout.write(
-      [
-        "Created plan artifact.",
-        `- State: ${path.resolve(statePath)}`,
-        `- Plan: ${planFilePath}`,
-        "",
-      ].join("\n"),
-    );
-    return;
-  }
-
-  if (command === "cleanup") {
-    const statePath = getFlagValue(rest, "--state");
-    if (!statePath) {
-      throw new Error("otto cleanup requires --state <path>");
-    }
-    const state = await loadOttoState(statePath);
-
-    const configPathOverride = getFlagValue(rest, "--config");
-    const resolvedConfigPath = resolveConfigPathFromState({
-      state,
-      overridePath: configPathOverride,
-    });
-
-    const config = await loadOttoConfig(resolvedConfigPath);
-    const prompt = config.prompt?.adapter ?? createOpentuiPromptAdapter();
-    if (!prompt) {
-      throw new Error("otto requires a prompt adapter");
-    }
-
-    const force = hasFlag(rest, "--force");
-    const deleteBranch = hasFlag(rest, "--delete-branch");
-    const deleteArtifacts = hasFlag(rest, "--delete-artifacts");
-
-    await runOttoCleanup({
-      state,
-      config,
-      prompt,
-      force,
-      deleteBranch,
-      deleteArtifacts,
-    });
-
-    process.stdout.write(
-      ["Cleanup complete.", `- State: ${path.resolve(statePath)}`, ""].join(
-        "\n",
-      ),
-    );
-    return;
-  }
-
-  throw new Error(`Unknown command: ${command}`);
+  await handler(rest);
 }

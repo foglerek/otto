@@ -11,13 +11,19 @@
   "scripts": {
     "build": "turbo run build",
     "otto:build": "turbo run build --filter=@otto/core",
-    "otto": "bun run otto:build && node packages/core/dist/cli.js",
+    "otto": "bun run otto:build && node packages/core/script/ensure-binary.js && node packages/core/bin/otto.js",
+    "otto:dev": "bun run otto:build && bun packages/core/dist/cli.js",
+    "otto:compile": "bun run otto:build && node packages/core/script/ensure-binary.js",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint -- --fix",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "clean": "turbo run clean"
   },
   "devDependencies": {
     "@types/node": "^22.13.1",
+    "@typescript-eslint/parser": "^8.53.1",
+    "eslint": "^9.39.2",
     "turbo": "^2.4.4",
     "typescript": "^5.7.3"
   }

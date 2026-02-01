@@ -1,0 +1,15 @@
+{
+  "name": "@otto/core-linux-x64",
+  "version": "0.0.0",
+  "private": true,
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/otto"
+  ],
+  "license": "UNLICENSED"
+}
