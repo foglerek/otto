@@ -44,6 +44,11 @@ Keep the boundary clean:
 
 ## Rules
 
+### Continuity
+
+- *ALWAYS* keep .internal/otto/TODO.md up to date.
+- *ALWAYS* record decisions made with the user in .internal/otto/DECISIONS.md.
+
 ### Artifacts
 
 - Otto writes artifacts to `.otto/` by default.
