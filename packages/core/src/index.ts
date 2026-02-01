@@ -150,12 +150,23 @@ async function handleRunCommand(rest: string[]): Promise<void> {
     throw new Error("otto config must provide runners.default");
   }
 
-  const { planFilePath } = await runOttoRun({ state, config });
+  const prompt = config.prompt?.adapter ?? createOpentuiPromptAdapter();
+  if (!prompt) {
+    throw new Error("otto requires a prompt adapter");
+  }
+
+  const { planFilePath, stoppedAtPhase } = await runOttoRun({
+    state,
+    stateFilePath: statePath,
+    config,
+    prompt,
+  });
   process.stdout.write(
     [
-      "Created plan artifact.",
+      "Workflow progressed.",
       `- State: ${path.resolve(statePath)}`,
       `- Plan: ${planFilePath}`,
+      `- Phase: ${stoppedAtPhase}`,
       "",
     ].join("\n"),
   );

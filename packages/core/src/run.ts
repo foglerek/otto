@@ -1,41 +1,55 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-
 import type { OttoConfig } from "@otto/config";
+import type { OttoPromptAdapter } from "@otto/ports";
 
+import { createNodeExec } from "./exec.js";
+import {
+  attachProcessRegistryExitHandlers,
+  createProcessRegistry,
+} from "./process-registry.js";
 import type { OttoStateV1 } from "./state.js";
 
-async function ensureDir(dirPath: string): Promise<void> {
-  await fs.mkdir(dirPath, { recursive: true });
-}
+import { createOttoStateStore } from "./workflow/state-store.js";
+import { resolveWorkflowRunners } from "./workflow/runtime.js";
+import { runWorkflowOrchestrator } from "./workflow/orchestrator.js";
+import { getPlanFilePath } from "./workflow/paths.js";
 
 export async function runOttoRun(args: {
   state: OttoStateV1;
+  stateFilePath: string;
   config: OttoConfig;
-}): Promise<{ planFilePath: string }> {
-  const runDir = path.join(
-    args.state.artifactRootDir,
-    "runs",
-    args.state.runId,
-  );
-  await ensureDir(runDir);
+  prompt: OttoPromptAdapter;
+}): Promise<{ planFilePath: string; stoppedAtPhase: string }> {
+  const registry = createProcessRegistry();
+  const detachHandlers = attachProcessRegistryExitHandlers(registry);
+  const exec = createNodeExec({ registry });
 
-  const planFilePath = path.join(runDir, "plan.json");
+  const stateStore = createOttoStateStore({
+    filePath: args.stateFilePath,
+    initialState: args.state,
+  });
 
-  const plan = {
-    version: 1,
-    runId: args.state.runId,
-    createdAt: new Date().toISOString(),
-    ask: args.state.ask,
-    worktree: args.state.worktree,
-    steps: [],
-    notes: "Scaffold plan file. The real planner is not implemented yet.",
+  const runners = resolveWorkflowRunners(args.config);
+  const runtime = {
+    config: args.config,
+    prompt: args.prompt,
+    exec,
+    registry,
+    stateStore,
+    state: stateStore.state,
+    runners,
+    reminders: {
+      techLead: [],
+      task: [],
+      reviewer: [],
+    },
   };
 
-  await fs.writeFile(
-    planFilePath,
-    JSON.stringify(plan, null, 2) + "\n",
-    "utf8",
-  );
-  return { planFilePath };
+  try {
+    const { stoppedAtPhase } = await runWorkflowOrchestrator({ runtime });
+    const planFilePath = getPlanFilePath(runtime.state);
+    return { planFilePath, stoppedAtPhase };
+  } finally {
+    detachHandlers();
+    registry.killAll("run complete");
+  }
 }

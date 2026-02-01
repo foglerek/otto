@@ -12,7 +12,7 @@ class EchoRunner implements OttoRunner {
     return {
       success: true,
       sessionId: options.sessionId ?? "echo-session",
-      outputText: options.prompt,
+      outputText: `${options.prompt}\n\n<OK>\n`,
     };
   }
 }

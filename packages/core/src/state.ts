@@ -8,6 +8,17 @@ export interface OttoStateV1 {
   configPath?: string;
   mainRepoPath: string;
   artifactRootDir: string;
+  workflow?: {
+    phase?: OttoWorkflowPhase;
+    needsUserInput?: boolean;
+    runDir?: string;
+    planFilePath?: string;
+    decisionCardsPath?: string;
+    techLeadSessionId?: string;
+    taskQueue?: string[];
+    taskAgentSessions?: Record<string, string | null>;
+    reviewerSessions?: Record<string, string | null>;
+  };
   ask: {
     date: string;
     slug: string;
@@ -21,6 +32,20 @@ export interface OttoStateV1 {
   env?: Record<string, string>;
   testEnv?: Record<string, string>;
 }
+
+export type OttoWorkflowPhase =
+  | "ask-created"
+  | "ask-ingested"
+  | "decision-cards"
+  | "plan-feedback"
+  | "plan-created"
+  | "task-splitting"
+  | "task-feedback"
+  | "execution"
+  | "user-feedback"
+  | "integration"
+  | "finalize"
+  | "cleanup";
 
 function assertString(value: unknown, name: string): asserts value is string {
   if (typeof value !== "string" || value.trim().length === 0) {

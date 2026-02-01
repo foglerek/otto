@@ -162,6 +162,13 @@ export async function runBootstrap(args: {
     configPath: args.configPath ? path.resolve(args.configPath) : undefined,
     mainRepoPath,
     artifactRootDir: artifacts.rootDir,
+    workflow: {
+      phase: "ask-created",
+      needsUserInput: false,
+      taskQueue: [],
+      taskAgentSessions: {},
+      reviewerSessions: {},
+    },
     ask,
     worktree: {
       worktreePath,

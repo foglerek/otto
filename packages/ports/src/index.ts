@@ -21,6 +21,8 @@ export interface OttoRunnerRunOptions {
   role: OttoRole;
   phaseName: string;
   prompt: string;
+  cwd: string;
+  exec: OttoExec;
   sessionId?: string;
   timeoutMs?: number;
   warmingTimeoutMs?: number;
@@ -58,6 +60,8 @@ export interface OttoExec {
       cwd: string;
       env?: Record<string, string>;
       timeoutMs?: number;
+      stdin?: string;
+      label?: string;
     },
   ): Promise<OttoExecResult>;
 }
