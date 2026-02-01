@@ -29,6 +29,40 @@ export type DecisionCardsDocument = {
   decisions: DecisionCard[];
 };
 
+export function getDecisionCardContentHash(card: DecisionCard): string {
+  const content = JSON.stringify({
+    id: card.id,
+    proposedChange: card.proposedChange,
+    why: card.why,
+    alternatives: card.alternatives,
+    assumptions: card.assumptions,
+    futureState: card.futureState,
+  });
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+export function stripEmptyUserFeedback(card: DecisionCard): DecisionCard {
+  const trimmed = (card.userFeedback ?? "").trim();
+  if (!trimmed) {
+    const { userFeedback: _userFeedback, ...rest } = card;
+    void _userFeedback;
+    return rest;
+  }
+  return { ...card, userFeedback: trimmed };
+}
+
+export async function writeDecisionCards(
+  decisionCardsPath: string,
+  doc: DecisionCardsDocument,
+): Promise<void> {
+  await fs.mkdir(path.dirname(decisionCardsPath), { recursive: true });
+  await fs.writeFile(
+    decisionCardsPath,
+    JSON.stringify(doc, null, 2) + "\n",
+    "utf8",
+  );
+}
+
 const decisionCardsJsonSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   type: "object",
@@ -124,16 +158,10 @@ function validateDocument(doc: unknown): asserts doc is DecisionCardsDocument {
   }
 }
 
-function computeApprovedHash(card: DecisionCard): string {
-  const content = JSON.stringify({
-    id: card.id,
-    proposedChange: card.proposedChange,
-    why: card.why,
-    alternatives: card.alternatives,
-    assumptions: card.assumptions,
-    futureState: card.futureState,
-  });
-  return crypto.createHash("sha256").update(content).digest("hex");
+export async function readDecisionCards(
+  decisionCardsPath: string,
+): Promise<DecisionCardsDocument | null> {
+  return await readExistingDecisionCards(decisionCardsPath);
 }
 
 function mergeUserFields(args: {
@@ -154,8 +182,8 @@ function mergeUserFields(args: {
 
   const nextDecisions = args.next.decisions.map((d) => {
     const prev = prevDecisions.get(d.id);
-    const nextHash = computeApprovedHash(d);
-    const prevHash = prev ? computeApprovedHash(prev) : null;
+    const nextHash = getDecisionCardContentHash(d);
+    const prevHash = prev ? getDecisionCardContentHash(prev) : null;
 
     return {
       ...d,
@@ -190,9 +218,12 @@ export async function generateDecisionCards(args: {
   runtime: OttoWorkflowRuntime;
   planFilePath: string;
   decisionCardsPath: string;
+  existingCards?: DecisionCardsDocument | null;
 }): Promise<void> {
   const plan = await fs.readFile(args.planFilePath, "utf8");
-  const existing = await readExistingDecisionCards(args.decisionCardsPath);
+  const existing =
+    args.existingCards ??
+    (await readExistingDecisionCards(args.decisionCardsPath));
 
   const prompt = [
     getTechLeadSystemReminder(args.runtime, "planning"),
@@ -252,14 +283,28 @@ export async function generateDecisionCards(args: {
     previous: existing,
   });
 
-  await fs.mkdir(path.dirname(args.decisionCardsPath), { recursive: true });
-  await fs.writeFile(
-    args.decisionCardsPath,
-    JSON.stringify(merged, null, 2) + "\n",
-    "utf8",
-  );
+  await writeDecisionCards(args.decisionCardsPath, merged);
 
   if (!fileExistsAndHasContent(args.decisionCardsPath)) {
     throw new Error("Decision cards: failed to write decision-cards.json");
   }
+}
+
+export async function ensureDecisionCards(args: {
+  runtime: OttoWorkflowRuntime;
+  planFilePath: string;
+  decisionCardsPath: string;
+}): Promise<DecisionCardsDocument> {
+  const existing = await readExistingDecisionCards(args.decisionCardsPath);
+  if (existing) return existing;
+  await generateDecisionCards({
+    runtime: args.runtime,
+    planFilePath: args.planFilePath,
+    decisionCardsPath: args.decisionCardsPath,
+  });
+  const next = await readExistingDecisionCards(args.decisionCardsPath);
+  if (!next) {
+    throw new Error("Decision cards missing or invalid after regeneration.");
+  }
+  return next;
 }

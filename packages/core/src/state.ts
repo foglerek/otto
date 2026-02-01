@@ -18,6 +18,7 @@ export interface OttoStateV1 {
     taskQueue?: string[];
     taskAgentSessions?: Record<string, string | null>;
     reviewerSessions?: Record<string, string | null>;
+    autoRetryCounts?: Record<string, number>;
   };
   ask: {
     date: string;

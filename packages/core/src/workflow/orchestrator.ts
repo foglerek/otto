@@ -2,6 +2,11 @@ import type { OttoWorkflowRuntime } from "./runtime.js";
 import type { OttoWorkflowPhase } from "../state.js";
 
 import { runAskIngestionPhase } from "./phases/ask-ingestion.js";
+import { runDecisionCardsGatePhase } from "./phases/decision-cards-gate.js";
+import { runPlanFeedbackPhase } from "./phases/plan-feedback.js";
+import { runTaskSplittingPhase } from "./phases/task-splitting.js";
+import { runTaskFeedbackPhase } from "./phases/task-feedback.js";
+import { runExecutionPhase } from "./phases/execution.js";
 
 function ensureWorkflowPhase(runtime: OttoWorkflowRuntime): OttoWorkflowPhase {
   if (!runtime.state.workflow) {
@@ -51,7 +56,41 @@ export async function runWorkflowOrchestrator(args: {
       continue;
     }
 
-    // The remaining phases are scaffolded but not implemented yet.
+    if (phase === "ask-ingested") {
+      await runDecisionCardsGatePhase({ runtime: args.runtime });
+      await setPhase(args.runtime, "decision-cards");
+      continue;
+    }
+
+    if (phase === "decision-cards") {
+      await runPlanFeedbackPhase({ runtime: args.runtime });
+      await setPhase(args.runtime, "plan-created");
+      continue;
+    }
+
+    if (phase === "plan-created") {
+      await setPhase(args.runtime, "task-splitting");
+      continue;
+    }
+
+    if (phase === "task-splitting") {
+      await runTaskSplittingPhase({ runtime: args.runtime });
+      await setPhase(args.runtime, "task-feedback");
+      continue;
+    }
+
+    if (phase === "task-feedback") {
+      await runTaskFeedbackPhase({ runtime: args.runtime });
+      await setPhase(args.runtime, "execution");
+      continue;
+    }
+
+    if (phase === "execution") {
+      await runExecutionPhase({ runtime: args.runtime });
+      await setPhase(args.runtime, "user-feedback");
+      continue;
+    }
+
     return { stoppedAtPhase: phase };
   }
 

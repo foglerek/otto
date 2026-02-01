@@ -31,3 +31,57 @@ ${reminders.map((r) => `- ${r}`).join("\n")}
 </system-reminder>
 `);
 }
+
+export function getTaskAgentSystemReminder(
+  runtime: OttoWorkflowRuntime,
+): string {
+  const artifactRootDir = runtime.state.artifactRootDir;
+  const runDir = getRunDir(runtime.state);
+  const worktreePath = runtime.state.worktree.worktreePath;
+
+  const reminders: string[] = [
+    `All workflow artifacts MUST be written under the main repo artifact root: ${artifactRootDir}`,
+    `Task reports/reviews/outcomes MUST be written under: ${runDir}`,
+    `Code changes MUST be made in the worktree: ${worktreePath}`,
+    "Use absolute paths for any file read/write directives you provide.",
+    "Do NOT commit to git.",
+  ];
+
+  if (runtime.reminders.task.length > 0) {
+    reminders.push(...runtime.reminders.task);
+    runtime.reminders.task.length = 0;
+  }
+
+  return untab(`
+<system-reminder>
+${reminders.map((r) => `- ${r}`).join("\n")}
+</system-reminder>
+`);
+}
+
+export function getTaskReviewerSystemReminder(
+  runtime: OttoWorkflowRuntime,
+): string {
+  const artifactRootDir = runtime.state.artifactRootDir;
+  const runDir = getRunDir(runtime.state);
+  const worktreePath = runtime.state.worktree.worktreePath;
+
+  const reminders: string[] = [
+    `All workflow artifacts MUST be written under the main repo artifact root: ${artifactRootDir}`,
+    `Reviews MUST be written under: ${runDir}`,
+    `Review the code in the worktree: ${worktreePath}`,
+    "Use absolute paths for any file read/write directives you provide.",
+    "Do NOT commit to git.",
+  ];
+
+  if (runtime.reminders.reviewer.length > 0) {
+    reminders.push(...runtime.reminders.reviewer);
+    runtime.reminders.reviewer.length = 0;
+  }
+
+  return untab(`
+<system-reminder>
+${reminders.map((r) => `- ${r}`).join("\n")}
+</system-reminder>
+`);
+}

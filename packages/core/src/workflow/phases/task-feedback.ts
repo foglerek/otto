@@ -1,0 +1,92 @@
+import path from "node:path";
+
+import type { OttoWorkflowRuntime } from "../runtime.js";
+import { getTechLeadSystemReminder } from "../system-reminders.js";
+import { getPlanFilePath, getRunDir } from "../paths.js";
+import { createTaskQueue } from "../task-queue.js";
+
+async function maybeRetry(
+  runtime: OttoWorkflowRuntime,
+  label: string,
+): Promise<boolean> {
+  const wf = runtime.state.workflow;
+  const tries = wf?.autoRetryCounts?.[label] ?? 0;
+  const maxAuto = 2;
+  if (tries < maxAuto) {
+    if (wf) {
+      wf.autoRetryCounts = wf.autoRetryCounts ?? {};
+      wf.autoRetryCounts[label] = tries + 1;
+      await runtime.stateStore.save();
+    }
+    return true;
+  }
+  return await runtime.prompt.confirm(`${label} failed. Retry?`, {
+    defaultValue: true,
+  });
+}
+
+export async function runTaskFeedbackPhase(args: {
+  runtime: OttoWorkflowRuntime;
+}): Promise<void> {
+  const runDir = getRunDir(args.runtime.state);
+  const planFilePath = getPlanFilePath(args.runtime.state);
+  const taskQueue = createTaskQueue(args.runtime);
+
+  let firstIteration = true;
+  while (true) {
+    const tasks = await taskQueue.loadTasks({ runDir, ignoreState: false });
+    const relativeTasks = tasks.map((t) =>
+      path.relative(args.runtime.state.mainRepoPath, t),
+    );
+    const contextLines = [
+      `Plan: ${planFilePath}`,
+      ...(relativeTasks.length > 0
+        ? ["Tasks:", ...relativeTasks.map((t) => `- ${t}`)]
+        : ["Tasks: (none)"]),
+    ];
+
+    const feedback = await args.runtime.prompt.text(
+      `${firstIteration ? "Task splitting feedback?" : "More task splitting feedback?"} (empty to continue)\n${contextLines.join("\n")}`,
+      { defaultValue: "" },
+    );
+
+    firstIteration = false;
+
+    if (!feedback.trim()) return;
+
+    const prompt = [
+      getTechLeadSystemReminder(args.runtime, "task-splitting"),
+      "<INSTRUCTIONS>",
+      `Update ${planFilePath} and task files in ${runDir} based on feedback in <INPUT>. Reply <OK> when done.`,
+      "</INSTRUCTIONS>",
+      "<INPUT>",
+      feedback,
+      "</INPUT>",
+    ].join("\n");
+
+    while (true) {
+      const result = await args.runtime.runners.lead.run({
+        role: "lead",
+        phaseName: "task-feedback",
+        prompt,
+        cwd: args.runtime.state.worktree.worktreePath,
+        exec: args.runtime.exec,
+        sessionId: args.runtime.state.workflow?.techLeadSessionId,
+        timeoutMs: 15 * 60_000,
+      });
+
+      if (!result.success) {
+        const retry = await maybeRetry(args.runtime, "Task feedback");
+        if (!retry) throw new Error(result.error ?? "Task feedback failed.");
+        continue;
+      }
+
+      if (args.runtime.state.workflow) {
+        args.runtime.state.workflow.techLeadSessionId = result.sessionId;
+        args.runtime.state.workflow.taskQueue = [];
+        await args.runtime.stateStore.save();
+      }
+      break;
+    }
+  }
+}
