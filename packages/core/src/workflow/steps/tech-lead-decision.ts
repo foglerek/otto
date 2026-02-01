@@ -2,6 +2,7 @@ import type { OttoWorkflowRuntime } from "../runtime.js";
 import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { fileExistsAndHasContent } from "../file-utils.js";
 import { sessionMicroRetry } from "../micro-retry.js";
+import { toWorktreePath } from "../paths.js";
 import {
   getAttemptsRemaining,
   getBaseTaskInfo,
@@ -165,28 +166,56 @@ async function ensureDecisionFile(args: {
   const sessionId = wf?.techLeadSessionId ?? null;
 
   if (args.decision === "acceptance") {
-    if (fileExistsAndHasContent(args.ctx.outcomePath)) return true;
-    await sessionMicroRetry({
+    return await ensureDecisionArtifact({
       runtime: args.runtime,
-      role: "lead",
       sessionId,
-      message: `Create the outcome file: ${args.ctx.outcomePath}`,
+      filePath: args.ctx.outcomePath,
+      label: "outcome",
     });
-    return fileExistsAndHasContent(args.ctx.outcomePath);
   }
 
   if (args.decision === "remediation") {
-    if (fileExistsAndHasContent(args.ctx.remediationPath)) return true;
-    await sessionMicroRetry({
+    return await ensureDecisionArtifact({
       runtime: args.runtime,
-      role: "lead",
       sessionId,
-      message: `Create the remediation file: ${args.ctx.remediationPath}`,
+      filePath: args.ctx.remediationPath,
+      label: "remediation",
     });
-    return fileExistsAndHasContent(args.ctx.remediationPath);
   }
 
   return true;
+}
+
+async function ensureDecisionArtifact(args: {
+  runtime: OttoWorkflowRuntime;
+  sessionId: string | null;
+  filePath: string;
+  label: "outcome" | "remediation";
+}): Promise<boolean> {
+  if (fileExistsAndHasContent(args.filePath)) return true;
+  const worktreePath = toWorktreePath({
+    state: args.runtime.state,
+    mainRepoFilePath: args.filePath,
+  });
+  if (worktreePath && fileExistsAndHasContent(worktreePath)) {
+    args.runtime.reminders.techLead.push(
+      `You wrote Otto artifacts under the worktree. Create/update the file at: ${args.filePath}`,
+    );
+    const ok = await sessionMicroRetry({
+      runtime: args.runtime,
+      role: "lead",
+      sessionId: args.sessionId,
+      message: `Move or recreate the ${args.label} file at ${args.filePath} and reply with <OK>.`,
+    });
+    return ok && fileExistsAndHasContent(args.filePath);
+  }
+  await sessionMicroRetry({
+    runtime: args.runtime,
+    role: "lead",
+    sessionId: args.sessionId,
+    message: `Create the ${args.label} file: ${args.filePath}`,
+  });
+  return fileExistsAndHasContent(args.filePath);
 }
 
 function resolveAcceptanceOutput(
@@ -211,15 +240,27 @@ export async function executeTechLeadDecision(args: {
     ctx,
   });
 
-  const result = await args.runtime.runners.lead.run({
-    role: "lead",
-    phaseName: "tech-lead-decision",
-    prompt,
-    cwd: args.runtime.state.worktree.worktreePath,
-    exec: args.runtime.exec,
-    sessionId: args.runtime.state.workflow?.techLeadSessionId,
-    timeoutMs: 10 * 60_000,
-  });
+  const runOnce = async (sessionId?: string) =>
+    await args.runtime.runners.lead.run({
+      role: "lead",
+      phaseName: "tech-lead-decision",
+      prompt,
+      cwd: args.runtime.state.worktree.worktreePath,
+      exec: args.runtime.exec,
+      sessionId,
+      timeoutMs: 10 * 60_000,
+    });
+
+  let sessionId = args.runtime.state.workflow?.techLeadSessionId;
+  let result = await runOnce(sessionId);
+  if (sessionId && result.contextOverflow) {
+    if (args.runtime.state.workflow) {
+      delete args.runtime.state.workflow.techLeadSessionId;
+      await args.runtime.stateStore.save();
+    }
+    sessionId = undefined;
+    result = await runOnce(undefined);
+  }
 
   if (!result.success) return null;
 

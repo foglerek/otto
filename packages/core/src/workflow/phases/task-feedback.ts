@@ -1,8 +1,10 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 
 import type { OttoWorkflowRuntime } from "../runtime.js";
 import { getTechLeadSystemReminder } from "../system-reminders.js";
-import { getPlanFilePath, getRunDir } from "../paths.js";
+import { fileExistsAndHasContent } from "../file-utils.js";
+import { getPlanFilePath, getRunDir, toWorktreePath } from "../paths.js";
 import { createTaskQueue } from "../task-queue.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
@@ -30,6 +32,8 @@ async function maybeRetry(
 async function applyTaskFeedbackUpdate(args: {
   runtime: OttoWorkflowRuntime;
   prompt: string;
+  planFilePath: string;
+  runDir: string;
 }): Promise<void> {
   while (true) {
     const runOnce = async (sessionId?: string) =>
@@ -79,6 +83,20 @@ async function applyTaskFeedbackUpdate(args: {
       }
     }
 
+    const artifactsOk = await ensureTaskFeedbackArtifacts({
+      runtime: args.runtime,
+      planFilePath: args.planFilePath,
+      runDir: args.runDir,
+      sessionIdForRetry: result.sessionId ?? sessionId ?? null,
+    });
+    if (!artifactsOk) {
+      const retry = await maybeRetry(args.runtime, "Task feedback");
+      if (!retry) {
+        throw new Error("Task feedback missing updated artifacts.");
+      }
+      continue;
+    }
+
     if (args.runtime.state.workflow) {
       args.runtime.state.workflow.techLeadSessionId = result.sessionId;
       args.runtime.state.workflow.taskQueue = [];
@@ -87,6 +105,98 @@ async function applyTaskFeedbackUpdate(args: {
 
     return;
   }
+}
+
+async function ensurePlanInMainRepo(args: {
+  runtime: OttoWorkflowRuntime;
+  planFilePath: string;
+  sessionIdForRetry: string | null;
+}): Promise<boolean> {
+  if (fileExistsAndHasContent(args.planFilePath)) return true;
+  const worktreePlanPath = toWorktreePath({
+    state: args.runtime.state,
+    mainRepoFilePath: args.planFilePath,
+  });
+  if (worktreePlanPath && fileExistsAndHasContent(worktreePlanPath)) {
+    args.runtime.reminders.techLead.push(
+      `You wrote Otto artifacts under the worktree. Create/update the file at: ${args.planFilePath}`,
+    );
+    const ok = await sessionMicroRetry({
+      runtime: args.runtime,
+      role: "lead",
+      sessionId: args.sessionIdForRetry,
+      message: `Move or recreate the plan at ${args.planFilePath} and reply with <OK>.`,
+    });
+    return ok && fileExistsAndHasContent(args.planFilePath);
+  }
+  return false;
+}
+
+async function ensureTaskFeedbackArtifacts(args: {
+  runtime: OttoWorkflowRuntime;
+  planFilePath: string;
+  runDir: string;
+  sessionIdForRetry: string | null;
+}): Promise<boolean> {
+  const planOk = await ensurePlanInMainRepo({
+    runtime: args.runtime,
+    planFilePath: args.planFilePath,
+    sessionIdForRetry: args.sessionIdForRetry,
+  });
+  if (!planOk) return false;
+  return await ensureTasksInMainRepo({
+    runtime: args.runtime,
+    runDir: args.runDir,
+    sessionIdForRetry: args.sessionIdForRetry,
+  });
+}
+
+async function listTaskFiles(runDir: string): Promise<string[]> {
+  try {
+    const files = await fs.readdir(runDir);
+    return files
+      .filter((file) => /^task-\d+-.*\.md$/.test(file))
+      .map((file) => path.join(runDir, file));
+  } catch {
+    return [];
+  }
+}
+
+function hasNonEmptyTasks(taskFiles: string[]): boolean {
+  return (
+    taskFiles.length > 0 &&
+    taskFiles.every((file) => fileExistsAndHasContent(file))
+  );
+}
+
+async function ensureTasksInMainRepo(args: {
+  runtime: OttoWorkflowRuntime;
+  runDir: string;
+  sessionIdForRetry: string | null;
+}): Promise<boolean> {
+  const taskFiles = await listTaskFiles(args.runDir);
+  if (hasNonEmptyTasks(taskFiles)) return true;
+  const worktreeRunDir = toWorktreePath({
+    state: args.runtime.state,
+    mainRepoFilePath: args.runDir,
+  });
+  if (worktreeRunDir) {
+    const worktreeTasks = await listTaskFiles(worktreeRunDir);
+    if (hasNonEmptyTasks(worktreeTasks)) {
+      args.runtime.reminders.techLead.push(
+        `You wrote Otto artifacts under the worktree. Create/update the file at: ${args.runDir}`,
+      );
+      const ok = await sessionMicroRetry({
+        runtime: args.runtime,
+        role: "lead",
+        sessionId: args.sessionIdForRetry,
+        message: `Move or recreate the task files in ${args.runDir} and reply with <OK>.`,
+      });
+      const updatedTasks = await listTaskFiles(args.runDir);
+      return ok && hasNonEmptyTasks(updatedTasks);
+    }
+  }
+  return false;
 }
 
 export async function runTaskFeedbackPhase(args: {
@@ -128,6 +238,11 @@ export async function runTaskFeedbackPhase(args: {
       "</INPUT>",
     ].join("\n");
 
-    await applyTaskFeedbackUpdate({ runtime: args.runtime, prompt });
+    await applyTaskFeedbackUpdate({
+      runtime: args.runtime,
+      prompt,
+      planFilePath,
+      runDir,
+    });
   }
 }

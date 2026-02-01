@@ -5,9 +5,14 @@ import {
   type DecisionCardsDocument,
 } from "../decision-cards.js";
 import { reviewDecisionCards } from "../decision-card-review.js";
+import { fileExistsAndHasContent } from "../file-utils.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { getTechLeadSystemReminder } from "../system-reminders.js";
-import { getDecisionCardsPath, getPlanFilePath } from "../paths.js";
+import {
+  getDecisionCardsPath,
+  getPlanFilePath,
+  toWorktreePath,
+} from "../paths.js";
 import { hasOkSentinel } from "../sentinels.js";
 
 function buildDecisionCardFeedback(summary: {
@@ -122,6 +127,19 @@ async function applyDecisionCardsPlanUpdate(args: {
       }
     }
 
+    const planOk = await ensurePlanInMainRepo({
+      runtime: args.runtime,
+      planFilePath: args.planFilePath,
+      sessionIdForRetry: result.sessionId ?? sessionId ?? null,
+    });
+    if (!planOk) {
+      const retry = await maybeRetry(args.runtime, "Decision card feedback");
+      if (!retry) {
+        throw new Error("Decision card feedback missing updated plan file.");
+      }
+      continue;
+    }
+
     if (args.runtime.state.workflow) {
       args.runtime.state.workflow.techLeadSessionId = result.sessionId;
       await args.runtime.stateStore.save();
@@ -136,6 +154,31 @@ async function applyDecisionCardsPlanUpdate(args: {
 
     return;
   }
+}
+
+async function ensurePlanInMainRepo(args: {
+  runtime: OttoWorkflowRuntime;
+  planFilePath: string;
+  sessionIdForRetry: string | null;
+}): Promise<boolean> {
+  if (fileExistsAndHasContent(args.planFilePath)) return true;
+  const worktreePlanPath = toWorktreePath({
+    state: args.runtime.state,
+    mainRepoFilePath: args.planFilePath,
+  });
+  if (worktreePlanPath && fileExistsAndHasContent(worktreePlanPath)) {
+    args.runtime.reminders.techLead.push(
+      `You wrote Otto artifacts under the worktree. Create/update the file at: ${args.planFilePath}`,
+    );
+    const ok = await sessionMicroRetry({
+      runtime: args.runtime,
+      role: "lead",
+      sessionId: args.sessionIdForRetry,
+      message: `Move or recreate the plan at ${args.planFilePath} and reply with <OK>.`,
+    });
+    return ok && fileExistsAndHasContent(args.planFilePath);
+  }
+  return false;
 }
 
 export async function runDecisionCardsGatePhase(args: {
