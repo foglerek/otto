@@ -20,7 +20,7 @@ export interface OttoStateV1 {
     reviewerSessions?: Record<string, string | null>;
     autoRetryCounts?: Record<string, number>;
   };
-  ask: {
+  ticket: {
     date: string;
     slug: string;
     filePath: string;
@@ -35,8 +35,8 @@ export interface OttoStateV1 {
 }
 
 export type OttoWorkflowPhase =
-  | "ask-created"
-  | "ask-ingested"
+  | "ticket-created"
+  | "ticket-ingested"
   | "decision-cards"
   | "plan-feedback"
   | "plan-created"
@@ -90,12 +90,12 @@ export async function loadOttoState(
   assertString(s.mainRepoPath, "mainRepoPath");
   assertString(s.artifactRootDir, "artifactRootDir");
 
-  if (!s.ask || typeof s.ask !== "object") {
-    throw new Error("Invalid state: expected ask object");
+  if (!s.ticket || typeof s.ticket !== "object") {
+    throw new Error("Invalid state: expected ticket object");
   }
-  assertString(s.ask.date, "ask.date");
-  assertString(s.ask.slug, "ask.slug");
-  assertString(s.ask.filePath, "ask.filePath");
+  assertString(s.ticket.date, "ticket.date");
+  assertString(s.ticket.slug, "ticket.slug");
+  assertString(s.ticket.filePath, "ticket.filePath");
 
   if (!s.worktree || typeof s.worktree !== "object") {
     throw new Error("Invalid state: expected worktree object");

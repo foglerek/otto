@@ -4,7 +4,7 @@
 
 Otto is an opinionated agentic workflow harness.
 
-- It converts an ask into durable artifacts (plan/tasks/reports) and orchestrates a reliable execution loop.
+- It converts a ticket into durable artifacts (plan/tasks/reports) and orchestrates a reliable execution loop.
 - It is designed to be repo-agnostic via adapters and runners published as npm packages.
 - It uses Git worktrees for isolation (core invariant).
 
@@ -72,7 +72,7 @@ Keep the boundary clean:
 - Build: `bun run build`
 - Run CLI locally: `bun run otto -- --help`
 - Fast CLI (dev): `bun run otto:dev -- --help`
-- Bootstrap a worktree (scaffold): `bun run otto -- bootstrap --slug <slug> --ask "..."`
+- Bootstrap a worktree (scaffold): `bun run otto -- bootstrap --slug <slug> --ticket "..."`
 - Done means: `bun run lint && bun run typecheck && bun run test`
 
 ### UI

@@ -190,6 +190,6 @@ export async function runFinalizePhase(args: {
 
   await commitIfDirty(
     args.runtime,
-    `Finalize: ${args.runtime.state.ask.slug} (${args.runtime.state.runId})`,
+    `Finalize: ${args.runtime.state.ticket.slug} (${args.runtime.state.runId})`,
   );
 }

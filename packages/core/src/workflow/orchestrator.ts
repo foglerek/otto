@@ -1,7 +1,7 @@
 import type { OttoWorkflowRuntime } from "./runtime.js";
 import type { OttoWorkflowPhase } from "../state.js";
 
-import { runAskIngestionPhase } from "./phases/ask-ingestion.js";
+import { runTicketIngestionPhase } from "./phases/ticket-ingestion.js";
 import { runDecisionCardsGatePhase } from "./phases/decision-cards-gate.js";
 import { runPlanFeedbackPhase } from "./phases/plan-feedback.js";
 import { runTaskSplittingPhase } from "./phases/task-splitting.js";
@@ -14,7 +14,7 @@ import { runFinalizePhase } from "./phases/finalize.js";
 function ensureWorkflowPhase(runtime: OttoWorkflowRuntime): OttoWorkflowPhase {
   if (!runtime.state.workflow) {
     runtime.state.workflow = {
-      phase: "ask-created",
+      phase: "ticket-created",
       needsUserInput: false,
       taskQueue: [],
       taskAgentSessions: {},
@@ -22,7 +22,7 @@ function ensureWorkflowPhase(runtime: OttoWorkflowRuntime): OttoWorkflowPhase {
     };
   }
   if (!runtime.state.workflow.phase) {
-    runtime.state.workflow.phase = "ask-created";
+    runtime.state.workflow.phase = "ticket-created";
   }
   return runtime.state.workflow.phase;
 }
@@ -53,13 +53,13 @@ export async function runWorkflowOrchestrator(args: {
   for (let i = 0; i < maxSteps; i += 1) {
     const phase = ensureWorkflowPhase(args.runtime);
 
-    if (phase === "ask-created") {
-      await runAskIngestionPhase({ runtime: args.runtime });
-      await setPhase(args.runtime, "ask-ingested");
+    if (phase === "ticket-created") {
+      await runTicketIngestionPhase({ runtime: args.runtime });
+      await setPhase(args.runtime, "ticket-ingested");
       continue;
     }
 
-    if (phase === "ask-ingested") {
+    if (phase === "ticket-ingested") {
       await runDecisionCardsGatePhase({ runtime: args.runtime });
       await setPhase(args.runtime, "decision-cards");
       continue;

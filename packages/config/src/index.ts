@@ -9,7 +9,7 @@ import type {
   OttoWorktreeInfo,
 } from "@otto/ports";
 
-export interface OttoAskMeta {
+export interface OttoTicketMeta {
   date: string;
   slug: string;
   filePath: string;
@@ -60,7 +60,7 @@ export interface OttoIntegrationConfig {
 export interface OttoWorktreeConfig {
   baseBranch: string;
   worktreesDir?: string;
-  branchNamer(args: { ask: OttoAskMeta }): string;
+  branchNamer(args: { ticket: OttoTicketMeta }): string;
   afterCreate(ctx: OttoWorktreeHookContext): Promise<void>;
   beforeCleanup?(ctx: OttoWorktreeHookContext): Promise<void>;
   adapter: OttoWorktreeAdapter;

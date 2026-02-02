@@ -2,7 +2,7 @@
 
 ![otto logo](./logo.png)
 
-Otto is an opinionated, extensible agentic workflow harness. It turns a user "ask" into a durable set of artifacts (plans, tasks, reports) and orchestrates a reliable loop over them.
+Otto is an opinionated, extensible agentic workflow harness. It turns a user ticket into a durable set of artifacts (plans, tasks, reports) and orchestrates a reliable loop over them.
 
 Core design constraints:
 
@@ -27,7 +27,7 @@ This repo is a Turborepo monorepo. Adapters and runners are npm packages so cons
 
 ## Artifacts
 
-Otto writes run artifacts to `.otto/` (asks, logs, states, etc.).
+Otto writes run artifacts to `.otto/` (tickets, logs, states, etc.).
 
 By default, this repo also places git worktrees in `.worktrees/`.
 
@@ -57,7 +57,7 @@ bun run otto -- --help
 Bootstrap a worktree + artifact root (scaffold):
 
 ```bash
-bun run otto -- bootstrap --slug smoke-test --ask "Bootstrap smoke test"
+bun run otto -- bootstrap --slug smoke-test --ticket "Bootstrap smoke test"
 ```
 
 ## Status

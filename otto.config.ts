@@ -10,7 +10,7 @@ import { createEchoRunner } from "@otto/runner-echo";
 export default defineOttoConfig({
   worktree: {
     baseBranch: "main",
-    branchNamer: ({ ask }) => `otto-${ask.date}-${ask.slug}`,
+    branchNamer: ({ ticket }) => `otto-${ticket.date}-${ticket.slug}`,
     adapter: createGitWorktreeAdapter(),
     afterCreate: async () => {
       // repo bootstrap hook (intentionally empty for scaffolding)

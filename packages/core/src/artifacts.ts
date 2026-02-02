@@ -3,7 +3,7 @@ import path from "node:path";
 
 export interface OttoArtifactPaths {
   rootDir: string;
-  asksDir: string;
+  ticketsDir: string;
   runsDir: string;
   logsDir: string;
   statesDir: string;
@@ -16,7 +16,7 @@ export function resolveArtifactPaths(args: {
   const rootDir = path.resolve(args.mainRepoPath, args.artifactRoot ?? ".otto");
   return {
     rootDir,
-    asksDir: path.join(rootDir, "asks"),
+    ticketsDir: path.join(rootDir, "tickets"),
     runsDir: path.join(rootDir, "runs"),
     logsDir: path.join(rootDir, "logs"),
     statesDir: path.join(rootDir, "states"),
@@ -26,7 +26,7 @@ export function resolveArtifactPaths(args: {
 export async function ensureArtifactDirs(
   paths: OttoArtifactPaths,
 ): Promise<void> {
-  await fs.mkdir(paths.asksDir, { recursive: true });
+  await fs.mkdir(paths.ticketsDir, { recursive: true });
   await fs.mkdir(paths.runsDir, { recursive: true });
   await fs.mkdir(paths.logsDir, { recursive: true });
   await fs.mkdir(paths.statesDir, { recursive: true });

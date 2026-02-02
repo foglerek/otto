@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import type { OttoConfig, OttoAskMeta } from "@otto/config";
+import type { OttoConfig, OttoTicketMeta } from "@otto/config";
 
 import { createNodeExec } from "./exec.js";
 import {
@@ -46,11 +46,11 @@ export async function runBootstrap(args: {
   configPath?: string;
   slug?: string;
   date?: string;
-  askText?: string;
+  ticketText?: string;
 }): Promise<{
   stateFile: string;
   artifactRootDir: string;
-  askFilePath: string;
+  ticketFilePath: string;
   worktreePath: string;
   branchName: string;
 }> {
@@ -79,26 +79,26 @@ export async function runBootstrap(args: {
 
   const date = (args.date ?? toISODate(new Date())).trim();
   const slug = toSafeSlug(args.slug ?? "bootstrap");
-  const askFileName = `${date}-${slug}.md`;
-  const askFilePath = path.join(artifacts.asksDir, askFileName);
+  const ticketFileName = `${date}-${slug}.md`;
+  const ticketFilePath = path.join(artifacts.ticketsDir, ticketFileName);
 
-  if (await exists(askFilePath)) {
-    throw new Error(`Ask already exists: ${askFilePath}`);
+  if (await exists(ticketFilePath)) {
+    throw new Error(`Ticket already exists: ${ticketFilePath}`);
   }
 
-  const askBody = args.askText?.trim()
-    ? args.askText.trim() + "\n"
+  const ticketBody = args.ticketText?.trim()
+    ? args.ticketText.trim() + "\n"
     : "Describe what you want Otto to do.\n";
 
-  await fs.writeFile(askFilePath, `# ${slug}\n\n${askBody}`, "utf8");
+  await fs.writeFile(ticketFilePath, `# ${slug}\n\n${ticketBody}`, "utf8");
 
-  const ask: OttoAskMeta = {
+  const ticket: OttoTicketMeta = {
     date,
     slug,
-    filePath: askFilePath,
+    filePath: ticketFilePath,
   };
 
-  const branchName = config.worktree.branchNamer({ ask });
+  const branchName = config.worktree.branchNamer({ ticket });
   const baseBranch = config.worktree.baseBranch;
 
   const { worktreePath } = await config.worktree.adapter.createWorktree({
@@ -163,13 +163,13 @@ export async function runBootstrap(args: {
     mainRepoPath,
     artifactRootDir: artifacts.rootDir,
     workflow: {
-      phase: "ask-created",
+      phase: "ticket-created",
       needsUserInput: false,
       taskQueue: [],
       taskAgentSessions: {},
       reviewerSessions: {},
     },
-    ask,
+    ticket,
     worktree: {
       worktreePath,
       branchName,
@@ -183,7 +183,7 @@ export async function runBootstrap(args: {
   return {
     stateFile,
     artifactRootDir: artifacts.rootDir,
-    askFilePath,
+    ticketFilePath,
     worktreePath,
     branchName,
   };

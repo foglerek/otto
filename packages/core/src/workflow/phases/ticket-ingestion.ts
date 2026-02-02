@@ -18,7 +18,7 @@ function ensureWorkflowState(
 ): NonNullable<OttoWorkflowRuntime["state"]["workflow"]> {
   if (!runtime.state.workflow) {
     runtime.state.workflow = {
-      phase: "ask-created",
+      phase: "ticket-created",
       needsUserInput: false,
       taskQueue: [],
       taskAgentSessions: {},
@@ -26,7 +26,7 @@ function ensureWorkflowState(
     };
   }
   if (!runtime.state.workflow.phase) {
-    runtime.state.workflow.phase = "ask-created";
+    runtime.state.workflow.phase = "ticket-created";
   }
   if (!runtime.state.workflow.taskQueue) {
     runtime.state.workflow.taskQueue = [];
@@ -40,9 +40,9 @@ function ensureWorkflowState(
   return runtime.state.workflow;
 }
 
-function buildAskIngestionPrompt(args: {
+function buildTicketIngestionPrompt(args: {
   runtime: OttoWorkflowRuntime;
-  askText: string;
+  ticketText: string;
   runDir: string;
   planFilePath: string;
 }): string {
@@ -64,13 +64,13 @@ function buildAskIngestionPrompt(args: {
     "<system-reminder>Use the exact paths given to you to read and write the input and output files.</system-reminder>",
     "",
     "<INPUT>",
-    args.askText.trimEnd(),
+    args.ticketText.trimEnd(),
     "</INPUT>",
     "",
   ].join("\n");
 }
 
-export async function runAskIngestionPhase(args: {
+export async function runTicketIngestionPhase(args: {
   runtime: OttoWorkflowRuntime;
 }): Promise<void> {
   const wf = ensureWorkflowState(args.runtime);
@@ -86,10 +86,13 @@ export async function runAskIngestionPhase(args: {
     draft.workflow.decisionCardsPath = decisionCardsPath;
   });
 
-  const askText = await fs.readFile(args.runtime.state.ask.filePath, "utf8");
-  const prompt = buildAskIngestionPrompt({
+  const ticketText = await fs.readFile(
+    args.runtime.state.ticket.filePath,
+    "utf8",
+  );
+  const prompt = buildTicketIngestionPrompt({
     runtime: args.runtime,
-    askText,
+    ticketText,
     runDir,
     planFilePath,
   });
@@ -97,7 +100,7 @@ export async function runAskIngestionPhase(args: {
   const runOnce = async (sessionId?: string) =>
     await args.runtime.runners.lead.run({
       role: "lead",
-      phaseName: "ask-ingestion",
+      phaseName: "ticket-ingestion",
       prompt,
       cwd: args.runtime.state.worktree.worktreePath,
       exec: args.runtime.exec,
@@ -115,7 +118,7 @@ export async function runAskIngestionPhase(args: {
   }
 
   if (!result.success) {
-    throw new Error(result.error ?? "Ask ingestion failed.");
+    throw new Error(result.error ?? "Ticket ingestion failed.");
   }
 
   if (!hasOkSentinel(result.outputText)) {
@@ -123,10 +126,10 @@ export async function runAskIngestionPhase(args: {
       runtime: args.runtime,
       role: "lead",
       sessionId: result.sessionId ?? sessionId ?? null,
-      message: "Reply with <OK> only when ask ingestion is complete.",
+      message: "Reply with <OK> only when ticket ingestion is complete.",
     });
     if (!ok) {
-      throw new Error("Ask ingestion missing <OK> sentinel.");
+      throw new Error("Ticket ingestion missing <OK> sentinel.");
     }
   }
 

@@ -26,7 +26,7 @@ function parseCommand(argv: string[]): { command: string; rest: string[] } {
     "--config",
     "--slug",
     "--date",
-    "--ask",
+    "--ticket",
     "--state",
   ]);
   for (let i = 0; i < argv.length; i += 1) {
@@ -58,9 +58,9 @@ function printHelp(): void {
       "Options:",
       "  --config <path>     path to otto.config.ts",
       "  --state <path>      path to .otto/states/run-*.json",
-      "  --slug <slug>       ask slug (default: bootstrap)",
-      "  --date <YYYY-MM-DD> ask date (default: today)",
-      "  --ask <text>        ask description text",
+      "  --slug <slug>       ticket slug (default: bootstrap)",
+      "  --date <YYYY-MM-DD> ticket date (default: today)",
+      "  --ticket <text>     ticket description text",
       "  --force             do not prompt for confirmation",
       "  --delete-branch     delete the worktree branch during cleanup",
       "  --delete-artifacts  delete .otto/runs/<runId> during cleanup",
@@ -105,7 +105,7 @@ async function handleBootstrapCommand(rest: string[]): Promise<void> {
 
   const slug = getFlagValue(rest, "--slug");
   const date = getFlagValue(rest, "--date");
-  const askText = getFlagValue(rest, "--ask");
+  const ticketText = getFlagValue(rest, "--ticket");
 
   const result = await runBootstrap({
     cwd: process.cwd(),
@@ -113,14 +113,14 @@ async function handleBootstrapCommand(rest: string[]): Promise<void> {
     configPath,
     slug,
     date,
-    askText,
+    ticketText,
   });
 
   process.stdout.write(
     [
       "Bootstrapped Otto run.",
       `- Artifact root: ${result.artifactRootDir}`,
-      `- Ask: ${result.askFilePath}`,
+      `- Ticket: ${result.ticketFilePath}`,
       `- Worktree: ${result.worktreePath}`,
       `- Branch: ${result.branchName}`,
       `- State: ${result.stateFile}`,
