@@ -8,6 +8,9 @@ export interface OttoStateV1 {
   configPath?: string;
   mainRepoPath: string;
   artifactRootDir: string;
+  stateFilePath: string;
+  runDir: string;
+  lockFilePath: string;
   workflow?: {
     phase?: OttoWorkflowPhase;
     needsUserInput?: boolean;
@@ -89,6 +92,9 @@ export async function loadOttoState(
   assertString(s.createdAt, "createdAt");
   assertString(s.mainRepoPath, "mainRepoPath");
   assertString(s.artifactRootDir, "artifactRootDir");
+  assertString(s.stateFilePath, "stateFilePath");
+  assertString(s.runDir, "runDir");
+  assertString(s.lockFilePath, "lockFilePath");
 
   if (!s.ticket || typeof s.ticket !== "object") {
     throw new Error("Invalid state: expected ticket object");

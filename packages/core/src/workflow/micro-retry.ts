@@ -13,13 +13,15 @@ function getReminderForRole(
   runtime: OttoWorkflowRuntime,
   role: OttoRole,
 ): string {
-  if (role === "lead") return getTechLeadSystemReminder(runtime, "planning");
+  if (role === "projectLead" || role === "lead") {
+    return getTechLeadSystemReminder(runtime, "planning");
+  }
   if (role === "reviewer") return getTaskReviewerSystemReminder(runtime);
   return getTaskAgentSystemReminder(runtime);
 }
 
 function getRunnerForRole(runtime: OttoWorkflowRuntime, role: OttoRole) {
-  if (role === "lead") return runtime.runners.lead;
+  if (role === "projectLead" || role === "lead") return runtime.runners.lead;
   if (role === "reviewer") return runtime.runners.reviewer;
   if (role === "summarize") return runtime.runners.summarize;
   return runtime.runners.task;

@@ -1,4 +1,4 @@
-export type OttoRole = "lead" | "task" | "reviewer" | "summarize";
+export type OttoRole = "projectLead" | "lead" | "task" | "reviewer" | "summarize";
 
 export type OttoLogLevel = "debug" | "info" | "warn" | "error";
 export type OttoLogChannel =

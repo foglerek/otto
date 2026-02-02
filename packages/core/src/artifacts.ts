@@ -7,6 +7,8 @@ export interface OttoArtifactPaths {
   runsDir: string;
   logsDir: string;
   statesDir: string;
+  locksDir: string;
+  sessionsDir: string;
 }
 
 export function resolveArtifactPaths(args: {
@@ -20,6 +22,8 @@ export function resolveArtifactPaths(args: {
     runsDir: path.join(rootDir, "runs"),
     logsDir: path.join(rootDir, "logs"),
     statesDir: path.join(rootDir, "states"),
+    locksDir: path.join(rootDir, "locks"),
+    sessionsDir: path.join(rootDir, "sessions"),
   };
 }
 
@@ -30,13 +34,25 @@ export async function ensureArtifactDirs(
   await fs.mkdir(paths.runsDir, { recursive: true });
   await fs.mkdir(paths.logsDir, { recursive: true });
   await fs.mkdir(paths.statesDir, { recursive: true });
+  await fs.mkdir(paths.locksDir, { recursive: true });
+  await fs.mkdir(paths.sessionsDir, { recursive: true });
 }
 
 export async function ensureGitignoreHasArtifactRoot(args: {
   mainRepoPath: string;
   artifactRootDir: string;
 }): Promise<void> {
-  const rel = path.relative(args.mainRepoPath, args.artifactRootDir);
+  await ensureGitignoreHasDir({
+    mainRepoPath: args.mainRepoPath,
+    dirPath: args.artifactRootDir,
+  });
+}
+
+export async function ensureGitignoreHasDir(args: {
+  mainRepoPath: string;
+  dirPath: string;
+}): Promise<void> {
+  const rel = path.relative(args.mainRepoPath, args.dirPath);
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
     return;
   }

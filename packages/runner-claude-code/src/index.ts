@@ -24,7 +24,12 @@ function getTimeoutMs(timeoutMs: number | undefined): number {
 
 function getModelConfig(role: OttoRunnerRunOptions["role"]): ModelConfig {
   // Mirrors the legacy task-manager defaults.
-  if (role === "lead" || role === "reviewer" || role === "task") {
+  if (
+    role === "projectLead" ||
+    role === "lead" ||
+    role === "reviewer" ||
+    role === "task"
+  ) {
     return {
       model: "claude-opus-4-5",
       thinking: true,
