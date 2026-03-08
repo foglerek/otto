@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type { OttoStateV1, OttoWorkflowPhase } from "../state.js";
 import type { OttoStateStore } from "./state-store.js";
 
@@ -74,6 +76,17 @@ function ensureWorkflow(
   return state.workflow;
 }
 
+function assertNonEmpty(value: string, field: string): void {
+  if (value.trim().length === 0) {
+    throw new Error(`Invalid workflow action: ${field} must be non-empty`);
+  }
+}
+
+function isWithin(parent: string, child: string): boolean {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
 export function applyWorkflowAction(
   state: OttoStateV1,
   action: WorkflowStateAction,
@@ -87,6 +100,9 @@ export function applyWorkflowAction(
   const wf = ensureWorkflow(state, action.defaultPhase ?? "ticket-created");
 
   if (action.type === "set-task-queue") {
+    if (action.queue.some((q) => q.trim().length === 0)) {
+      throw new Error("Invalid workflow action: task queue entries must be non-empty");
+    }
     wf.taskQueue = action.queue;
     return;
   }
@@ -101,18 +117,40 @@ export function applyWorkflowAction(
   }
 
   if (action.type === "set-task-agent-session") {
+    assertNonEmpty(action.taskKey, "taskKey");
     wf.taskAgentSessions![action.taskKey] = action.sessionId;
     return;
   }
 
   if (action.type === "set-reviewer-session") {
+    assertNonEmpty(action.taskKey, "taskKey");
     wf.reviewerSessions![action.taskKey] = action.sessionId;
     return;
   }
 
   if (action.type === "set-auto-retry-count") {
+    if (!Number.isInteger(action.count) || action.count < 0) {
+      throw new Error("Invalid workflow action: auto-retry count must be a non-negative integer");
+    }
+    assertNonEmpty(action.label, "label");
     wf.autoRetryCounts![action.label] = action.count;
     return;
+  }
+
+  if (!path.isAbsolute(action.runDir)) {
+    throw new Error("Invalid workflow action: runDir must be absolute");
+  }
+  if (!path.isAbsolute(action.planFilePath)) {
+    throw new Error("Invalid workflow action: planFilePath must be absolute");
+  }
+  if (!path.isAbsolute(action.decisionCardsPath)) {
+    throw new Error("Invalid workflow action: decisionCardsPath must be absolute");
+  }
+  if (!isWithin(action.runDir, action.planFilePath)) {
+    throw new Error("Invalid workflow action: planFilePath must be within runDir");
+  }
+  if (!isWithin(action.runDir, action.decisionCardsPath)) {
+    throw new Error("Invalid workflow action: decisionCardsPath must be within runDir");
   }
 
   wf.runDir = action.runDir;

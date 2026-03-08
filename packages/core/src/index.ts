@@ -84,6 +84,9 @@ const NON_INTERACTIVE_COMMANDS = [
   "otto config",
 ];
 
+let jsonOutputMode = false;
+let cachedCliVersion: string | null = null;
+
 type OttoCommand =
   | "root"
   | "help"
@@ -185,6 +188,24 @@ function isInteractiveAvailable(): boolean {
 }
 
 function printHelp(): void {
+  if (jsonOutputMode) {
+    process.stdout.write(
+      `${JSON.stringify({
+        name: "otto",
+        commands: [
+          { name: "create", usage: "otto create <ticket-prompt>" },
+          { name: "ingest", usage: "otto ingest <path>" },
+          { name: "start", usage: "otto start <ticket>" },
+          { name: "resume", usage: "otto resume [ticket|state]" },
+          { name: "active", usage: "otto active" },
+          { name: "delete", usage: "otto delete [ticket|state]" },
+          { name: "config", usage: "otto config" },
+        ],
+      })}\n`,
+    );
+    return;
+  }
+
   process.stdout.write(
     [
       "otto",
@@ -209,6 +230,16 @@ function printHelp(): void {
 }
 
 function printNonInteractiveSnippet(): void {
+  if (jsonOutputMode) {
+    process.stderr.write(
+      `${JSON.stringify({
+        error: "Interactive prompt unavailable",
+        nonInteractiveCommands: NON_INTERACTIVE_COMMANDS,
+      })}\n`,
+    );
+    return;
+  }
+
   process.stderr.write(
     [
       "Non-interactive commands:",
@@ -219,12 +250,33 @@ function printNonInteractiveSnippet(): void {
 }
 
 function fail(message: string): void {
-  process.stderr.write(`${message}\n`);
+  if (jsonOutputMode) {
+    process.stderr.write(`${JSON.stringify({ error: message })}\n`);
+  } else {
+    process.stderr.write(`${message}\n`);
+  }
   process.exitCode = 1;
 }
 
 function failNoRunner(): void {
   fail(NO_RUNNER_MESSAGE);
+}
+
+function output(data: unknown, textLines: string[]): void {
+  if (jsonOutputMode) {
+    process.stdout.write(`${JSON.stringify(data)}\n`);
+    return;
+  }
+  process.stdout.write(textLines.join("\n"));
+}
+
+export async function getCliVersion(): Promise<string> {
+  if (cachedCliVersion) return cachedCliVersion;
+  const pkgPath = new URL("../package.json", import.meta.url);
+  const raw = await fs.readFile(pkgPath, "utf8");
+  const parsed = JSON.parse(raw) as { version?: string };
+  cachedCliVersion = parsed.version ?? "0.0.0";
+  return cachedCliVersion;
 }
 
 function getProjectLeadRunner(config: OttoConfig): OttoRunner | null {
@@ -441,10 +493,13 @@ async function handleCreateCommand(args: string[]): Promise<void> {
     ticketText,
   });
 
-  process.stdout.write(
-    ["Ticket created.", `- Id: ${result.ticketId}`, `- Path: ${result.filePath}`, ""].join(
-      "\n",
-    ),
+  output(
+    {
+      action: "create",
+      ticketId: result.ticketId,
+      filePath: result.filePath,
+    },
+    ["Ticket created.", `- Id: ${result.ticketId}`, `- Path: ${result.filePath}`, ""],
   );
 }
 
@@ -470,10 +525,13 @@ async function handleIngestCommand(args: string[]): Promise<void> {
     sourceFilePath,
   });
 
-  process.stdout.write(
-    ["Ticket ingested.", `- Id: ${result.ticketId}`, `- Path: ${result.filePath}`, ""].join(
-      "\n",
-    ),
+  output(
+    {
+      action: "ingest",
+      ticketId: result.ticketId,
+      filePath: result.filePath,
+    },
+    ["Ticket ingested.", `- Id: ${result.ticketId}`, `- Path: ${result.filePath}`, ""],
   );
 }
 
@@ -486,13 +544,18 @@ async function handleConfigCommand(): Promise<void> {
     return;
   }
 
-  process.stdout.write(
+  output(
+    {
+      action: "config",
+      path: configPath,
+      defaultRunner: config.runners?.default?.id ?? null,
+    },
     [
       "Otto config:",
       `- Path: ${configPath}`,
       `- Default runner: ${config.runners?.default?.id ?? "(unknown)"}`,
       "",
-    ].join("\n"),
+    ],
   );
 }
 
@@ -669,12 +732,18 @@ async function handleStartCommand(args: string[]): Promise<void> {
       config,
       prompt,
     });
-    process.stdout.write(
+    output(
+      {
+        action: "start",
+        runId: state.runId,
+        stoppedAtPhase: result.stoppedAtPhase,
+        planFilePath: result.planFilePath,
+      },
       [
         `Run stopped at phase: ${result.stoppedAtPhase}`,
         `Plan file: ${result.planFilePath}`,
         "",
-      ].join("\n"),
+      ],
     );
   } finally {
     await releaseRunLock(state.lockFilePath);
@@ -701,15 +770,15 @@ async function handleResumeCommand(args: string[]): Promise<void> {
     const runs = await listRuns({ artifactRootDir: artifactPaths.rootDir });
     const inactive = runs.filter((r) => r.process.status !== "active");
     if (inactive.length === 0) {
-      process.stdout.write("No resumable runs.\n");
+      output({ action: "resume", runs: [] }, ["No resumable runs.", ""]);
       return;
     }
-    process.stdout.write(
-      [
-        "Resumable runs:",
-        ...inactive.map((r) => `- ${r.state.runId}`),
-        "",
-      ].join("\n"),
+    output(
+      {
+        action: "resume",
+        runs: inactive.map((r) => ({ runId: r.state.runId })),
+      },
+      ["Resumable runs:", ...inactive.map((r) => `- ${r.state.runId}`), ""],
     );
     return;
   }
@@ -744,12 +813,18 @@ async function handleResumeCommand(args: string[]): Promise<void> {
       config,
       prompt,
     });
-    process.stdout.write(
+    output(
+      {
+        action: "resume",
+        runId: state.runId,
+        stoppedAtPhase: result.stoppedAtPhase,
+        planFilePath: result.planFilePath,
+      },
       [
         `Run stopped at phase: ${result.stoppedAtPhase}`,
         `Plan file: ${result.planFilePath}`,
         "",
-      ].join("\n"),
+      ],
     );
   } finally {
     await releaseRunLock(state.lockFilePath);
@@ -769,10 +844,16 @@ async function handleActiveCommand(): Promise<void> {
   const runs = await listRuns({ artifactRootDir: artifactPaths.rootDir });
   const active = runs.filter((r) => r.process.status === "active");
   if (active.length === 0) {
-    process.stdout.write("No active runs.\n");
+    output({ action: "active", runs: [] }, ["No active runs.", ""]);
     return;
   }
-  process.stdout.write(["Active runs:", ...active.map((r) => `- ${r.state.runId}`), ""].join("\n"));
+  output(
+    {
+      action: "active",
+      runs: active.map((r) => ({ runId: r.state.runId })),
+    },
+    ["Active runs:", ...active.map((r) => `- ${r.state.runId}`), ""],
+  );
 }
 
 async function handleDeleteCommand(args: string[]): Promise<void> {
@@ -835,12 +916,17 @@ async function handleDeleteCommand(args: string[]): Promise<void> {
   await fs.rm(state.stateFilePath, { force: true });
   await fs.rm(state.lockFilePath, { force: true });
 
-  process.stdout.write(
+  output(
+    {
+      action: "delete",
+      runId: state.runId,
+      preservedTicketPath: state.ticket.filePath,
+    },
     [
       `Deleted run: ${state.runId}`,
       `Preserved ticket: ${state.ticket.filePath}`,
       "",
-    ].join("\n"),
+    ],
   );
 }
 
@@ -976,8 +1062,18 @@ export function resolveCommandHandler(command: string): CommandHandler | null {
 }
 
 export async function runOttoCLI(argv: string[]): Promise<void> {
+  jsonOutputMode = argv.includes("--json");
   try {
-    const { command, args, helpRequested } = parseOttoArgs(argv);
+    const versionRequested = argv.includes("--version") || argv.includes("-v");
+    const filteredArgv = argv.filter((arg) => arg !== "--json" && arg !== "--version" && arg !== "-v");
+
+    if (versionRequested && filteredArgv.length === 0) {
+      const version = await getCliVersion();
+      output({ version }, [version]);
+      return;
+    }
+
+    const { command, args, helpRequested } = parseOttoArgs(filteredArgv);
     if (helpRequested || command === "help") {
       printHelp();
       return;
@@ -999,5 +1095,7 @@ export async function runOttoCLI(argv: string[]): Promise<void> {
     }
     const message = error instanceof Error ? error.message : String(error);
     fail(message);
+  } finally {
+    jsonOutputMode = false;
   }
 }

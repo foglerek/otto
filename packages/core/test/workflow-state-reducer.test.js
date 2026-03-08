@@ -64,3 +64,26 @@ test("set-tech-lead-session adds and clears session id", () => {
   });
   assert.equal(state.workflow.techLeadSessionId, undefined);
 });
+
+test("set-auto-retry-count rejects invalid counts", () => {
+  const state = makeState();
+  assert.throws(() => {
+    reducer.applyWorkflowAction(state, {
+      type: "set-auto-retry-count",
+      label: "x",
+      count: -1,
+    });
+  }, /non-negative integer/);
+});
+
+test("set-workflow-artifact-paths enforces runDir containment", () => {
+  const state = makeState();
+  assert.throws(() => {
+    reducer.applyWorkflowAction(state, {
+      type: "set-workflow-artifact-paths",
+      runDir: "/tmp/repo/.otto/runs/2026-02-01-sample",
+      planFilePath: "/tmp/repo/.otto/plan.md",
+      decisionCardsPath: "/tmp/repo/.otto/runs/2026-02-01-sample/decision-cards.json",
+    });
+  }, /planFilePath must be within runDir/);
+});

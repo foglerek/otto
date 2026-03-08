@@ -58,3 +58,36 @@ test("create fails with no usable runner message by default", async () => {
   const stderr = stderrChunks.join("");
   assert.match(stderr, /Error, need to configure at least one runner\. See README/);
 });
+
+test("getCliVersion reads package version", async () => {
+  const version = await cli.getCliVersion();
+  assert.equal(version, "0.0.0");
+});
+
+test("--json errors are structured", async () => {
+  const repo = await fs.mkdtemp(path.join(process.cwd(), ".tmp-otto-cli-json-"));
+  const prevCwd = process.cwd();
+  const prevExitCode = process.exitCode;
+  const stderrChunks = [];
+  const stderrWrite = process.stderr.write;
+
+  process.chdir(repo);
+  process.exitCode = 0;
+  process.stderr.write = ((chunk) => {
+    stderrChunks.push(String(chunk));
+    return true;
+  });
+
+  try {
+    await cli.runOttoCLI(["create", "Build", "a", "new", "feature", "--json"]);
+  } finally {
+    process.stderr.write = stderrWrite;
+    process.chdir(prevCwd);
+    process.exitCode = prevExitCode;
+    await fs.rm(repo, { recursive: true, force: true });
+  }
+
+  const stderr = stderrChunks.join("").trim();
+  const parsed = JSON.parse(stderr);
+  assert.equal(parsed.error, "Error, need to configure at least one runner. See README");
+});
