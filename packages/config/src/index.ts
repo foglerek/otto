@@ -57,6 +57,12 @@ export interface OttoIntegrationConfig {
   adapter?: OttoQualityGateAdapter;
 }
 
+export interface OttoSummariesConfig {
+  reportMaxChars?: number;
+  reviewMaxChars?: number;
+  maxAttempts?: number;
+}
+
 export interface OttoWorktreeConfig {
   baseBranch: string;
   worktreesDir?: string;
@@ -76,6 +82,8 @@ export interface OttoConfig {
   runners: OttoRunnersConfig;
 
   quality?: OttoQualityConfig;
+
+  summaries?: OttoSummariesConfig;
 
   // Post-merge / integration-only checks (optional). If adapter is omitted,
   // Otto will fall back to `quality.adapter`.

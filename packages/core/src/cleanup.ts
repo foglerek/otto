@@ -61,30 +61,42 @@ export async function runOttoCleanup(args: {
   const testEnvVars = state.testEnv ?? {};
 
   if (config.worktree.beforeCleanup) {
-    await config.worktree.beforeCleanup({
-      worktree,
-      exec,
-      env: {
-        set(key, value) {
-          envVars[key] = value;
+    try {
+      await config.worktree.beforeCleanup({
+        worktree,
+        exec,
+        env: {
+          set(key, value) {
+            envVars[key] = value;
+          },
         },
-      },
-      testEnv: {
-        set(key, value) {
-          testEnvVars[key] = value;
+        testEnv: {
+          set(key, value) {
+            testEnvVars[key] = value;
+          },
         },
-      },
-      services: {},
-      logger,
-    });
+        services: {},
+        logger,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`beforeCleanup hook failed for ${worktree.worktreePath}: ${message}`);
+    }
   }
 
-  await config.worktree.adapter.removeWorktree({
-    mainRepoPath: worktree.mainRepoPath,
-    worktreePath: worktree.worktreePath,
-    branchName: worktree.branchName,
-    deleteBranch: args.deleteBranch,
-  });
+  try {
+    await config.worktree.adapter.removeWorktree({
+      mainRepoPath: worktree.mainRepoPath,
+      worktreePath: worktree.worktreePath,
+      branchName: worktree.branchName,
+      deleteBranch: args.deleteBranch,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to remove worktree ${worktree.worktreePath} (branch ${worktree.branchName}): ${message}`,
+    );
+  }
 
   if (args.deleteArtifacts) {
     const runDir = path.join(state.artifactRootDir, "runs", state.runId);

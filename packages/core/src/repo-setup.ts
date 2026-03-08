@@ -11,6 +11,38 @@ import {
   resolveArtifactPaths,
 } from "./artifacts.js";
 
+async function ensureOnboardingStateFile(args: {
+  mainRepoPath: string;
+  artifactRootDir: string;
+  worktreesDir: string;
+  stateFilePath: string;
+}): Promise<void> {
+  try {
+    await fs.stat(args.stateFilePath);
+    return;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== "ENOENT") throw error;
+  }
+
+  const now = new Date().toISOString();
+  const payload = {
+    kind: "otto.onboarding",
+    version: 1,
+    status: "initialized",
+    createdAt: now,
+    updatedAt: now,
+    mainRepoPath: path.resolve(args.mainRepoPath),
+    artifactRootDir: path.resolve(args.artifactRootDir),
+    worktreesDir: path.resolve(args.worktreesDir),
+  };
+
+  await fs.writeFile(args.stateFilePath, JSON.stringify(payload, null, 2), {
+    encoding: "utf8",
+    flag: "wx",
+  });
+}
+
 export async function ensureRepoSetup(args: {
   mainRepoPath: string;
   config: OttoConfig;
@@ -32,6 +64,14 @@ export async function ensureRepoSetup(args: {
   );
   await fs.mkdir(worktreesDir, { recursive: true });
   await ensureGitignoreHasDir({ mainRepoPath: args.mainRepoPath, dirPath: worktreesDir });
+
+  const onboardingStatePath = path.join(artifactPaths.statesDir, "onboarding.json");
+  await ensureOnboardingStateFile({
+    mainRepoPath: args.mainRepoPath,
+    artifactRootDir: artifactPaths.rootDir,
+    worktreesDir,
+    stateFilePath: onboardingStatePath,
+  });
 
   return { artifactPaths, worktreesDir };
 }

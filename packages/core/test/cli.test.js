@@ -91,3 +91,65 @@ test("--json errors are structured", async () => {
   const parsed = JSON.parse(stderr);
   assert.equal(parsed.error, "Error, need to configure at least one runner. See README");
 });
+
+test("config works even when only scaffold runner exists", async () => {
+  const repo = await fs.mkdtemp(path.join(process.cwd(), ".tmp-otto-cli-config-"));
+  const prevCwd = process.cwd();
+  const prevExitCode = process.exitCode;
+  const stdoutChunks = [];
+  const stdoutWrite = process.stdout.write;
+
+  process.chdir(repo);
+  process.exitCode = 0;
+  process.stdout.write = ((chunk) => {
+    stdoutChunks.push(String(chunk));
+    return true;
+  });
+
+  try {
+    await cli.runOttoCLI(["config"]);
+  } finally {
+    process.stdout.write = stdoutWrite;
+    process.chdir(prevCwd);
+    process.exitCode = prevExitCode;
+    await fs.rm(repo, { recursive: true, force: true });
+  }
+
+  const stdout = stdoutChunks.join("");
+  assert.match(stdout, /Otto config:/);
+  assert.match(stdout, /Default runner: echo/);
+});
+
+test("active does not require usable runner", async () => {
+  const repo = await fs.mkdtemp(path.join(process.cwd(), ".tmp-otto-cli-active-"));
+  const prevCwd = process.cwd();
+  const prevExitCode = process.exitCode;
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const stdoutWrite = process.stdout.write;
+  const stderrWrite = process.stderr.write;
+
+  process.chdir(repo);
+  process.exitCode = 0;
+  process.stdout.write = ((chunk) => {
+    stdoutChunks.push(String(chunk));
+    return true;
+  });
+  process.stderr.write = ((chunk) => {
+    stderrChunks.push(String(chunk));
+    return true;
+  });
+
+  try {
+    await cli.runOttoCLI(["active"]);
+  } finally {
+    process.stdout.write = stdoutWrite;
+    process.stderr.write = stderrWrite;
+    process.chdir(prevCwd);
+    process.exitCode = prevExitCode;
+    await fs.rm(repo, { recursive: true, force: true });
+  }
+
+  assert.equal(stderrChunks.join(""), "");
+  assert.match(stdoutChunks.join(""), /No active runs\./);
+});

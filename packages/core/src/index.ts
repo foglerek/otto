@@ -538,12 +538,6 @@ async function handleIngestCommand(args: string[]): Promise<void> {
 async function handleConfigCommand(): Promise<void> {
   const { config, configPath } = await loadConfigFromCwd();
 
-  const runner = getProjectLeadRunner(config);
-  if (!runner) {
-    failNoRunner();
-    return;
-  }
-
   output(
     {
       action: "config",
@@ -625,11 +619,6 @@ async function handleStartCommand(args: string[]): Promise<void> {
   }
 
   const { config, configPath } = await loadConfigFromCwd();
-  const runner = getProjectLeadRunner(config);
-  if (!runner) {
-    failNoRunner();
-    return;
-  }
   if (!hasUsableWorkflowRunners(config)) {
     failNoRunner();
     return;
@@ -640,7 +629,12 @@ async function handleStartCommand(args: string[]): Promise<void> {
 
   const ticketFilePath = getTicketFilePathForId({ repoPath: mainRepoPath, ticketId });
   if (!(await pathExists(ticketFilePath))) {
-    fail(`Ticket not found: ${ticketId}`);
+    const candidates = await listManagedTicketIds(mainRepoPath);
+    const suffix =
+      candidates.length > 0
+        ? `\nAvailable tickets:\n${candidates.map((id) => `- ${id}`).join("\n")}`
+        : "";
+    fail(`Ticket not found: ${ticketId}${suffix}`);
     return;
   }
 
@@ -752,11 +746,6 @@ async function handleStartCommand(args: string[]): Promise<void> {
 
 async function handleResumeCommand(args: string[]): Promise<void> {
   const { config } = await loadConfigFromCwd();
-  const runner = getProjectLeadRunner(config);
-  if (!runner) {
-    failNoRunner();
-    return;
-  }
   if (!hasUsableWorkflowRunners(config)) {
     failNoRunner();
     return;
@@ -787,6 +776,17 @@ async function handleResumeCommand(args: string[]): Promise<void> {
     arg.includes("/") || arg.includes("\\") || arg.endsWith(".json")
       ? path.resolve(arg)
       : getStateFilePathForRunId({ artifactRootDir: artifactPaths.rootDir, runId: arg });
+
+  if (!(await pathExists(stateFilePath))) {
+    const runs = await listRuns({ artifactRootDir: artifactPaths.rootDir });
+    const candidates = runs.map((r) => r.state.runId);
+    const suffix =
+      candidates.length > 0
+        ? `\nKnown runs:\n${candidates.map((id) => `- ${id}`).join("\n")}`
+        : "";
+    fail(`State not found: ${arg}${suffix}`);
+    return;
+  }
 
   const state = await loadOttoState(stateFilePath);
   const existing = await readRunLockFile(state.lockFilePath);
@@ -833,11 +833,6 @@ async function handleResumeCommand(args: string[]): Promise<void> {
 
 async function handleActiveCommand(): Promise<void> {
   const { config } = await loadConfigFromCwd();
-  const runner = getProjectLeadRunner(config);
-  if (!runner) {
-    failNoRunner();
-    return;
-  }
 
   const mainRepoPath = await config.worktree.adapter.getMainRepoPath(process.cwd());
   const { artifactPaths } = await ensureRepoSetup({ mainRepoPath, config });
@@ -858,11 +853,6 @@ async function handleActiveCommand(): Promise<void> {
 
 async function handleDeleteCommand(args: string[]): Promise<void> {
   const { config } = await loadConfigFromCwd();
-  const runner = getProjectLeadRunner(config);
-  if (!runner) {
-    failNoRunner();
-    return;
-  }
 
   const mainRepoPath = await config.worktree.adapter.getMainRepoPath(process.cwd());
   const { artifactPaths } = await ensureRepoSetup({ mainRepoPath, config });
@@ -871,17 +861,25 @@ async function handleDeleteCommand(args: string[]): Promise<void> {
   if (!arg) {
     const runs = await listRuns({ artifactRootDir: artifactPaths.rootDir });
     if (runs.length === 0) {
-      process.stdout.write("No runs found.\n");
+      output({ action: "delete", runs: [] }, ["No runs found.", ""]);
       return;
     }
-    process.stdout.write(
+    output(
+      {
+        action: "delete",
+        runs: runs.map((r) => ({
+          runId: r.state.runId,
+          active: r.process.status === "active",
+        })),
+        error: "otto delete requires <ticket|state>",
+      },
       [
         "Runs:",
         ...runs.map((r) => `- ${r.state.runId}${r.process.status === "active" ? " (active)" : ""}`),
         "",
         "otto delete requires <ticket|state>",
         "",
-      ].join("\n"),
+      ],
     );
     process.exitCode = 1;
     return;
@@ -891,6 +889,18 @@ async function handleDeleteCommand(args: string[]): Promise<void> {
     arg.includes("/") || arg.includes("\\") || arg.endsWith(".json")
       ? path.resolve(arg)
       : getStateFilePathForRunId({ artifactRootDir: artifactPaths.rootDir, runId: arg });
+
+  if (!(await pathExists(stateFilePath))) {
+    const runs = await listRuns({ artifactRootDir: artifactPaths.rootDir });
+    const candidates = runs.map((r) => r.state.runId);
+    const suffix =
+      candidates.length > 0
+        ? `\nKnown runs:\n${candidates.map((id) => `- ${id}`).join("\n")}`
+        : "";
+    fail(`State not found: ${arg}${suffix}`);
+    return;
+  }
+
   const state = await loadOttoState(stateFilePath);
 
   const lock = await readRunLockFile(state.lockFilePath);

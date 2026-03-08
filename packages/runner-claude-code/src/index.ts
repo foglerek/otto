@@ -1,4 +1,5 @@
 import type {
+  OttoRole,
   OttoRunner,
   OttoRunnerResult,
   OttoRunnerRunOptions,
@@ -16,33 +17,74 @@ type ModelConfig = {
   thinking: boolean;
   maxThinkingTokens?: number;
   maxOutputTokens?: number;
+  extraArgs?: string[];
+  env?: Record<string, string>;
+};
+
+export type ClaudeCodeRunnerOptions = {
+  default?: Partial<ModelConfig>;
+  byRole?: Partial<Record<OttoRole, Partial<ModelConfig>>>;
+};
+
+const DEFAULT_ROLE_CONFIG: Record<OttoRole, ModelConfig> = {
+  projectLead: {
+    model: "claude-opus-4-5",
+    thinking: true,
+    maxThinkingTokens: 31999,
+    maxOutputTokens: 32000,
+  },
+  lead: {
+    model: "claude-opus-4-5",
+    thinking: true,
+    maxThinkingTokens: 31999,
+    maxOutputTokens: 32000,
+  },
+  reviewer: {
+    model: "claude-opus-4-5",
+    thinking: true,
+    maxThinkingTokens: 31999,
+    maxOutputTokens: 32000,
+  },
+  task: {
+    model: "claude-opus-4-5",
+    thinking: true,
+    maxThinkingTokens: 31999,
+    maxOutputTokens: 32000,
+  },
+  summarize: {
+    model: "claude-haiku-4-5",
+    thinking: false,
+  },
 };
 
 function getTimeoutMs(timeoutMs: number | undefined): number {
   return typeof timeoutMs === "number" && timeoutMs > 0 ? timeoutMs : 60_000;
 }
 
-function getModelConfig(role: OttoRunnerRunOptions["role"]): ModelConfig {
-  // Mirrors the legacy task-manager defaults.
-  if (
-    role === "projectLead" ||
-    role === "lead" ||
-    role === "reviewer" ||
-    role === "task"
-  ) {
-    return {
-      model: "claude-opus-4-5",
-      thinking: true,
-      maxThinkingTokens: 31999,
-      maxOutputTokens: 32000,
-    };
+function getModelConfig(
+  role: OttoRunnerRunOptions["role"],
+  options: ClaudeCodeRunnerOptions,
+): ModelConfig {
+  const base = DEFAULT_ROLE_CONFIG[role] ?? {
+    model: "claude-sonnet-4-5",
+    thinking: false,
+  };
+
+  const merged: ModelConfig = {
+    ...base,
+    ...options.default,
+    ...options.byRole?.[role],
+  };
+
+  if (!merged.model) {
+    merged.model = base.model;
   }
 
-  if (role === "summarize") {
-    return { model: "claude-haiku-4-5", thinking: false };
+  if (typeof merged.thinking !== "boolean") {
+    merged.thinking = base.thinking;
   }
 
-  return { model: "claude-sonnet-4-5", thinking: false };
+  return merged;
 }
 
 function toJsonSchemaArg(schema: unknown): string | null {
@@ -53,7 +95,7 @@ function toJsonSchemaArg(schema: unknown): string | null {
 
 function buildClaudeArgs(
   options: OttoRunnerRunOptions,
-  model: string,
+  modelConfig: ModelConfig,
 ): string[] {
   const args: string[] = [
     "-p",
@@ -62,7 +104,7 @@ function buildClaudeArgs(
     "--verbose",
     "--dangerously-skip-permissions",
     "--model",
-    model,
+    modelConfig.model,
   ];
 
   if (options.sessionId) {
@@ -72,6 +114,10 @@ function buildClaudeArgs(
   const schemaArg = toJsonSchemaArg(options.jsonSchema);
   if (schemaArg) {
     args.push("--json-schema", schemaArg);
+  }
+
+  if (Array.isArray(modelConfig.extraArgs) && modelConfig.extraArgs.length > 0) {
+    args.push(...modelConfig.extraArgs);
   }
 
   return args;
@@ -87,6 +133,7 @@ function buildClaudeEnv(modelConfig: ModelConfig): Record<string, string> {
           CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(modelConfig.maxOutputTokens),
         }
       : {}),
+    ...(modelConfig.env ?? {}),
   };
 }
 
@@ -143,10 +190,12 @@ class ClaudeCodeRunner implements OttoRunner {
   readonly kind = "claude-code";
   readonly id = "claude-code";
 
+  constructor(private readonly options: ClaudeCodeRunnerOptions = {}) {}
+
   async run(options: OttoRunnerRunOptions): Promise<OttoRunnerResult> {
-    const modelConfig = getModelConfig(options.role);
+    const modelConfig = getModelConfig(options.role, this.options);
     const timeoutMs = getTimeoutMs(options.timeoutMs);
-    const claudeArgs = buildClaudeArgs(options, modelConfig.model);
+    const claudeArgs = buildClaudeArgs(options, modelConfig);
 
     const execResult = await options.exec.run(["claude", ...claudeArgs], {
       cwd: options.cwd,
@@ -201,6 +250,8 @@ class ClaudeCodeRunner implements OttoRunner {
   }
 }
 
-export function createClaudeCodeRunner(): OttoRunner {
-  return new ClaudeCodeRunner();
+export function createClaudeCodeRunner(
+  options: ClaudeCodeRunnerOptions = {},
+): OttoRunner {
+  return new ClaudeCodeRunner(options);
 }

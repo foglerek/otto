@@ -1,7 +1,9 @@
 {
   "name": "@otto/core-darwin-x64",
   "version": "0.0.0",
-  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "os": [
     "darwin"
   ],

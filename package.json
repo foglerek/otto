@@ -18,9 +18,14 @@
     "lint:fix": "turbo run lint -- --fix",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
     "clean": "turbo run clean"
   },
   "devDependencies": {
+    "@changesets/changelog-git": "^0.2.1",
+    "@changesets/cli": "^2.29.7",
     "@types/node": "^22.13.1",
     "@typescript-eslint/parser": "^8.53.1",
     "eslint": "^9.39.2",

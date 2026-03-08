@@ -6,13 +6,33 @@ import { summaryReviewFilePath } from "../task-artifacts.js";
 import { getTaskAgentSystemReminder } from "../system-reminders.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 
-const MAX_SUMMARY_CHARS = 3000;
-const MAX_ATTEMPTS = 2;
+const DEFAULT_MAX_SUMMARY_CHARS = 3000;
+const DEFAULT_MAX_ATTEMPTS = 2;
+
+function getSummarySettings(runtime: OttoWorkflowRuntime): {
+  maxChars: number;
+  maxAttempts: number;
+} {
+  const rawMaxChars = runtime.config.summaries?.reviewMaxChars;
+  const rawAttempts = runtime.config.summaries?.maxAttempts;
+
+  const maxChars =
+    typeof rawMaxChars === "number" && Number.isFinite(rawMaxChars)
+      ? Math.max(1, Math.floor(rawMaxChars))
+      : DEFAULT_MAX_SUMMARY_CHARS;
+  const maxAttempts =
+    typeof rawAttempts === "number" && Number.isFinite(rawAttempts)
+      ? Math.max(1, Math.floor(rawAttempts))
+      : DEFAULT_MAX_ATTEMPTS;
+
+  return { maxChars, maxAttempts };
+}
 
 export async function summarizeReview(args: {
   runtime: OttoWorkflowRuntime;
   reviewFilePath: string;
 }): Promise<string | null> {
+  const { maxChars, maxAttempts } = getSummarySettings(args.runtime);
   const summaryPath = summaryReviewFilePath(
     args.runtime.state,
     args.reviewFilePath,
@@ -21,12 +41,12 @@ export async function summarizeReview(args: {
   if (!fileExistsAndHasContent(args.reviewFilePath)) return null;
 
   let sessionId: string | null = null;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const prompt = [
       getTaskAgentSystemReminder(args.runtime),
       "<INSTRUCTIONS>",
       "Produce a very short bullet summary for the tech lead.",
-      `Keep it <= ${MAX_SUMMARY_CHARS} characters.`,
+      `Keep it <= ${maxChars} characters.`,
       `Save it to: ${summaryPath}`,
       "Reply <OK> when done.",
       "</INSTRUCTIONS>",
@@ -61,7 +81,7 @@ export async function summarizeReview(args: {
     }
 
     const content = await fs.readFile(summaryPath, "utf8");
-    if (content.length <= MAX_SUMMARY_CHARS) {
+    if (content.length <= maxChars) {
       return summaryPath;
     }
 
@@ -69,7 +89,7 @@ export async function summarizeReview(args: {
       runtime: args.runtime,
       role: "summarize",
       sessionId,
-      message: `Rewrite ${summaryPath} to be <= ${MAX_SUMMARY_CHARS} characters.`,
+      message: `Rewrite ${summaryPath} to be <= ${maxChars} characters.`,
     });
     if (!ok) break;
   }

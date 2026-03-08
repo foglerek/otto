@@ -6,13 +6,33 @@ import { summaryReportFilePath } from "../task-artifacts.js";
 import { getTaskAgentSystemReminder } from "../system-reminders.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 
-const MAX_SUMMARY_CHARS = 6000;
-const MAX_ATTEMPTS = 2;
+const DEFAULT_MAX_SUMMARY_CHARS = 6000;
+const DEFAULT_MAX_ATTEMPTS = 2;
+
+function getSummarySettings(runtime: OttoWorkflowRuntime): {
+  maxChars: number;
+  maxAttempts: number;
+} {
+  const rawMaxChars = runtime.config.summaries?.reportMaxChars;
+  const rawAttempts = runtime.config.summaries?.maxAttempts;
+
+  const maxChars =
+    typeof rawMaxChars === "number" && Number.isFinite(rawMaxChars)
+      ? Math.max(1, Math.floor(rawMaxChars))
+      : DEFAULT_MAX_SUMMARY_CHARS;
+  const maxAttempts =
+    typeof rawAttempts === "number" && Number.isFinite(rawAttempts)
+      ? Math.max(1, Math.floor(rawAttempts))
+      : DEFAULT_MAX_ATTEMPTS;
+
+  return { maxChars, maxAttempts };
+}
 
 export async function summarizeReport(args: {
   runtime: OttoWorkflowRuntime;
   reportFilePath: string;
 }): Promise<string | null> {
+  const { maxChars, maxAttempts } = getSummarySettings(args.runtime);
   const summaryPath = summaryReportFilePath(
     args.runtime.state,
     args.reportFilePath,
@@ -21,12 +41,12 @@ export async function summarizeReport(args: {
   if (!fileExistsAndHasContent(args.reportFilePath)) return null;
 
   let sessionId: string | null = null;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const prompt = [
       getTaskAgentSystemReminder(args.runtime),
       "<INSTRUCTIONS>",
       "Write a focused executive summary for the tech lead.",
-      `Keep it <= ${MAX_SUMMARY_CHARS} characters.`,
+      `Keep it <= ${maxChars} characters.`,
       "Use headings: ## Problems & Risks, ## Work Completed / Evidence, ## Next Steps / Decisions.",
       `Save it to: ${summaryPath}`,
       "Reply <OK> when done.",
@@ -62,7 +82,7 @@ export async function summarizeReport(args: {
     }
 
     const content = await fs.readFile(summaryPath, "utf8");
-    if (content.length <= MAX_SUMMARY_CHARS) {
+    if (content.length <= maxChars) {
       return summaryPath;
     }
 
@@ -70,7 +90,7 @@ export async function summarizeReport(args: {
       runtime: args.runtime,
       role: "summarize",
       sessionId,
-      message: `Rewrite ${summaryPath} to be <= ${MAX_SUMMARY_CHARS} characters.`,
+      message: `Rewrite ${summaryPath} to be <= ${maxChars} characters.`,
     });
     if (!ok) break;
   }
