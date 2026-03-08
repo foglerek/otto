@@ -6,10 +6,21 @@ import type { OttoProcessRegistry } from "./process-registry.js";
 
 export function createNodeExec(args?: {
   registry?: OttoProcessRegistry;
+  onResult?: (event: {
+    label: string;
+    cmd: string[];
+    cwd: string;
+    exitCode: number;
+    timedOut: boolean;
+    durationMs: number;
+    stdout: string;
+    stderr: string;
+  }) => void | Promise<void>;
 }): OttoExec {
   return {
     async run(cmd, options): Promise<OttoExecResult> {
       return await new Promise((resolve) => {
+        const startedAt = Date.now();
         const detached = process.platform !== "win32";
         const child = spawn(cmd[0], cmd.slice(1), {
           cwd: options.cwd,
@@ -77,23 +88,45 @@ export function createNodeExec(args?: {
         child.on("close", (code) => {
           if (timeoutHandle) clearTimeout(timeoutHandle);
           unregister?.();
-          resolve({
+          const result = {
             exitCode: code ?? 1,
             stdout,
             stderr,
             timedOut,
+          };
+          void args?.onResult?.({
+            label: options.label ?? cmd.join(" "),
+            cmd,
+            cwd: options.cwd,
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            durationMs: Date.now() - startedAt,
+            stdout: result.stdout,
+            stderr: result.stderr,
           });
+          resolve(result);
         });
 
         child.on("error", (err) => {
           if (timeoutHandle) clearTimeout(timeoutHandle);
           unregister?.();
-          resolve({
+          const result = {
             exitCode: 1,
             stdout,
             stderr: stderr + String(err),
             timedOut,
+          };
+          void args?.onResult?.({
+            label: options.label ?? cmd.join(" "),
+            cmd,
+            cwd: options.cwd,
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            durationMs: Date.now() - startedAt,
+            stdout: result.stdout,
+            stderr: result.stderr,
           });
+          resolve(result);
         });
       });
     },

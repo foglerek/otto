@@ -1,6 +1,7 @@
 import type { OttoWorkflowRuntime } from "./runtime.js";
 import type { OttoWorkflowPhase } from "../state.js";
 import { dispatchWorkflowAction } from "./state-reducer.js";
+import { emitRunEvent } from "./events.js";
 
 import { runTicketIngestionPhase } from "./phases/ticket-ingestion.js";
 import { runDecisionCardsGatePhase } from "./phases/decision-cards-gate.js";
@@ -28,9 +29,16 @@ async function setPhase(
   runtime: OttoWorkflowRuntime,
   phase: OttoWorkflowPhase,
 ): Promise<void> {
+  const from = runtime.state.workflow?.phase ?? null;
   await dispatchWorkflowAction(runtime.stateStore, {
     type: "set-phase",
     phase,
+  });
+  await emitRunEvent({
+    logger: runtime.events,
+    runId: runtime.state.runId,
+    type: "phase_transition",
+    data: { from, to: phase },
   });
 }
 
@@ -40,6 +48,12 @@ export async function runWorkflowOrchestrator(args: {
   const maxSteps = 50;
   for (let i = 0; i < maxSteps; i += 1) {
     const phase = await ensureWorkflowPhase(args.runtime);
+    await emitRunEvent({
+      logger: args.runtime.events,
+      runId: args.runtime.state.runId,
+      type: "phase_entered",
+      data: { phase, step: i },
+    });
 
     if (phase === "ticket-created") {
       await runTicketIngestionPhase({ runtime: args.runtime });

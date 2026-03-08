@@ -5,6 +5,7 @@ import type { OttoProcessRegistry } from "../process-registry.js";
 import type { OttoStateV1 } from "../state.js";
 
 import type { OttoStateStore } from "./state-store.js";
+import type { OttoRunEventLogger } from "./events.js";
 
 export type OttoWorkflowRunners = {
   lead: OttoRunner;
@@ -26,6 +27,7 @@ export type OttoWorkflowRuntime = {
     task: string[];
     reviewer: string[];
   };
+  events: OttoRunEventLogger;
 };
 
 export function resolveWorkflowRunners(
