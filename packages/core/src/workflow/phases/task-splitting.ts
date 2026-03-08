@@ -5,6 +5,7 @@ import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { getRunDir, toWorktreePath } from "../paths.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
+import { dispatchWorkflowAction } from "../state-reducer.js";
 
 function directoryHasTaskFiles(directory: string): boolean {
   try {
@@ -42,10 +43,11 @@ async function runLeadTaskSplitting(args: {
 
   let result = await runOnce(initialSessionId);
   if (initialSessionId && result.contextOverflow) {
-    if (args.runtime.state.workflow) {
-      delete args.runtime.state.workflow.techLeadSessionId;
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-tech-lead-session",
+      sessionId: null,
+      defaultPhase: "task-splitting",
+    });
     result = await runOnce(undefined);
   }
 
@@ -142,10 +144,11 @@ export async function runTaskSplittingPhase(args: {
       continue;
     }
 
-    if (args.runtime.state.workflow) {
-      args.runtime.state.workflow.techLeadSessionId = result.sessionId;
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-tech-lead-session",
+      sessionId: result.sessionId ?? null,
+      defaultPhase: "task-splitting",
+    });
 
     if (directoryHasTaskFiles(runDir)) {
       return;

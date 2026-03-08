@@ -1,8 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import type { OttoStateV1 } from "../state.js";
-
 function buildFailureTimestamp(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
@@ -32,23 +30,4 @@ export async function archiveFailedTaskArtifacts(args: {
   );
 
   return timestamp;
-}
-
-export function clearTaskSessionsForBaseTask(
-  state: OttoStateV1,
-  baseTaskPath: string,
-): boolean {
-  const workflow = state.workflow;
-  if (!workflow) return false;
-
-  let changed = false;
-  if (workflow.taskAgentSessions?.[baseTaskPath] !== undefined) {
-    delete workflow.taskAgentSessions[baseTaskPath];
-    changed = true;
-  }
-  if (workflow.reviewerSessions?.[baseTaskPath] !== undefined) {
-    delete workflow.reviewerSessions[baseTaskPath];
-    changed = true;
-  }
-  return changed;
 }

@@ -9,6 +9,7 @@ import {
   DEFAULT_MAX_REMEDIATION_ATTEMPTS,
 } from "../task-metadata.js";
 import { outcomeFilePath, remediationTaskFilePath } from "../task-artifacts.js";
+import { dispatchWorkflowAction } from "../state-reducer.js";
 
 export type DecisionResult = {
   acceptanceDecision: "acceptance" | "remediation" | "failed";
@@ -254,20 +255,22 @@ export async function executeTechLeadDecision(args: {
   let sessionId = args.runtime.state.workflow?.techLeadSessionId;
   let result = await runOnce(sessionId);
   if (sessionId && result.contextOverflow) {
-    if (args.runtime.state.workflow) {
-      delete args.runtime.state.workflow.techLeadSessionId;
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-tech-lead-session",
+      sessionId: null,
+      defaultPhase: "execution",
+    });
     sessionId = undefined;
     result = await runOnce(undefined);
   }
 
   if (!result.success) return null;
 
-  if (args.runtime.state.workflow) {
-    args.runtime.state.workflow.techLeadSessionId = result.sessionId;
-    await args.runtime.stateStore.save();
-  }
+  await dispatchWorkflowAction(args.runtime.stateStore, {
+    type: "set-tech-lead-session",
+    sessionId: result.sessionId ?? null,
+    defaultPhase: "execution",
+  });
 
   const decision = hasDecisionTag(result.outputText ?? "", ctx.allowed);
   if (!decision) {

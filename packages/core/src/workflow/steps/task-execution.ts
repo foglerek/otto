@@ -7,6 +7,7 @@ import { toWorktreePath } from "../paths.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { reportFilePath } from "../task-artifacts.js";
 import { getBaseTaskInfo } from "../task-metadata.js";
+import { dispatchWorkflowAction } from "../state-reducer.js";
 
 export type TaskExecutionResult = {
   reportFilePath: string;
@@ -78,10 +79,12 @@ async function clearPersistedTaskSession(args: {
   runtime: OttoWorkflowRuntime;
   sessionKey: string;
 }): Promise<void> {
-  const wf = args.runtime.state.workflow;
-  if (!wf?.taskAgentSessions) return;
-  wf.taskAgentSessions[args.sessionKey] = null;
-  await args.runtime.stateStore.save();
+  await dispatchWorkflowAction(args.runtime.stateStore, {
+    type: "set-task-agent-session",
+    taskKey: args.sessionKey,
+    sessionId: null,
+    defaultPhase: "execution",
+  });
 }
 
 async function persistTaskSession(args: {
@@ -89,10 +92,12 @@ async function persistTaskSession(args: {
   sessionKey: string;
   sessionId: string | null;
 }): Promise<void> {
-  const wf = args.runtime.state.workflow;
-  if (!wf?.taskAgentSessions) return;
-  wf.taskAgentSessions[args.sessionKey] = args.sessionId;
-  await args.runtime.stateStore.save();
+  await dispatchWorkflowAction(args.runtime.stateStore, {
+    type: "set-task-agent-session",
+    taskKey: args.sessionKey,
+    sessionId: args.sessionId,
+    defaultPhase: "execution",
+  });
 }
 
 async function runTaskExecution(args: {

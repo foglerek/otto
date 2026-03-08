@@ -8,6 +8,7 @@ import { getPlanFilePath, getRunDir, toWorktreePath } from "../paths.js";
 import { sanitizeAbsolutePathsInMarkdown } from "../sanitize-markdown.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
+import { dispatchWorkflowAction } from "../state-reducer.js";
 
 async function git(
   runtime: OttoWorkflowRuntime,
@@ -94,10 +95,11 @@ export async function runFinalizePhase(args: {
   let sessionId = args.runtime.state.workflow?.techLeadSessionId;
   let result = await runOnce(sessionId);
   if (sessionId && result.contextOverflow) {
-    if (args.runtime.state.workflow) {
-      delete args.runtime.state.workflow.techLeadSessionId;
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-tech-lead-session",
+      sessionId: null,
+      defaultPhase: "finalize",
+    });
     sessionId = undefined;
     result = await runOnce(undefined);
   }
@@ -118,10 +120,11 @@ export async function runFinalizePhase(args: {
     }
   }
 
-  if (args.runtime.state.workflow) {
-    args.runtime.state.workflow.techLeadSessionId = result.sessionId;
-    await args.runtime.stateStore.save();
-  }
+  await dispatchWorkflowAction(args.runtime.stateStore, {
+    type: "set-tech-lead-session",
+    sessionId: result.sessionId ?? null,
+    defaultPhase: "finalize",
+  });
 
   if (!fileExistsAndHasContent(finalReportPath)) {
     const worktreeFinalReportPath = toWorktreePath({

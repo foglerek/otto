@@ -14,6 +14,7 @@ import {
   toWorktreePath,
 } from "../paths.js";
 import { hasOkSentinel } from "../sentinels.js";
+import { dispatchWorkflowAction } from "../state-reducer.js";
 
 function buildDecisionCardFeedback(summary: {
   openQuestions: Array<{ id: string; question: string; answer: string }>;
@@ -45,15 +46,15 @@ async function maybeRetry(
   runtime: OttoWorkflowRuntime,
   label: string,
 ): Promise<boolean> {
-  const wf = runtime.state.workflow;
-  const tries = wf?.autoRetryCounts?.[label] ?? 0;
+  const tries = runtime.state.workflow?.autoRetryCounts?.[label] ?? 0;
   const maxAuto = 2;
   if (tries < maxAuto) {
-    if (wf) {
-      wf.autoRetryCounts = wf.autoRetryCounts ?? {};
-      wf.autoRetryCounts[label] = tries + 1;
-      await runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(runtime.stateStore, {
+      type: "set-auto-retry-count",
+      label,
+      count: tries + 1,
+      defaultPhase: "decision-cards",
+    });
     return true;
   }
 
@@ -95,10 +96,11 @@ async function applyDecisionCardsPlanUpdate(args: {
     let sessionId = args.runtime.state.workflow?.techLeadSessionId;
     let result = await runOnce(sessionId);
     if (sessionId && result.contextOverflow) {
-      if (args.runtime.state.workflow) {
-        delete args.runtime.state.workflow.techLeadSessionId;
-        await args.runtime.stateStore.save();
-      }
+      await dispatchWorkflowAction(args.runtime.stateStore, {
+        type: "set-tech-lead-session",
+        sessionId: null,
+        defaultPhase: "decision-cards",
+      });
       sessionId = undefined;
       result = await runOnce(undefined);
     }
@@ -140,10 +142,11 @@ async function applyDecisionCardsPlanUpdate(args: {
       continue;
     }
 
-    if (args.runtime.state.workflow) {
-      args.runtime.state.workflow.techLeadSessionId = result.sessionId;
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-tech-lead-session",
+      sessionId: result.sessionId ?? null,
+      defaultPhase: "decision-cards",
+    });
 
     await generateDecisionCards({
       runtime: args.runtime,

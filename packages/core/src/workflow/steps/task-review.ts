@@ -5,6 +5,7 @@ import { toWorktreePath } from "../paths.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { reviewFilePath } from "../task-artifacts.js";
 import { getBaseTaskInfo } from "../task-metadata.js";
+import { dispatchWorkflowAction } from "../state-reducer.js";
 
 export async function executeTaskReview(args: {
   runtime: OttoWorkflowRuntime;
@@ -55,10 +56,12 @@ export async function executeTaskReview(args: {
 
   let reviewResult = await runReview(sessionId);
   if (sessionId && reviewResult.contextOverflow) {
-    if (wf?.reviewerSessions) {
-      wf.reviewerSessions[sessionKey] = null;
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-reviewer-session",
+      taskKey: sessionKey,
+      sessionId: null,
+      defaultPhase: "execution",
+    });
     sessionId = null;
     reviewResult = await runReview(null);
   }
@@ -66,10 +69,12 @@ export async function executeTaskReview(args: {
   if (!reviewResult.success) return null;
 
   sessionId = reviewResult.sessionId ?? sessionId;
-  if (wf?.reviewerSessions) {
-    wf.reviewerSessions[sessionKey] = sessionId;
-    await args.runtime.stateStore.save();
-  }
+  await dispatchWorkflowAction(args.runtime.stateStore, {
+    type: "set-reviewer-session",
+    taskKey: sessionKey,
+    sessionId,
+    defaultPhase: "execution",
+  });
 
   const worktreeReviewPath = toWorktreePath({
     state: args.runtime.state,

@@ -8,6 +8,7 @@ import { getRunDir, toWorktreePath } from "../paths.js";
 import { createTaskQueue } from "../task-queue.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
+import { dispatchWorkflowAction } from "../state-reducer.js";
 
 export type IntegrationRemediationType =
   | "merge-conflict"
@@ -26,15 +27,15 @@ async function maybeRetry(
   runtime: OttoWorkflowRuntime,
   label: string,
 ): Promise<boolean> {
-  const wf = runtime.state.workflow;
-  const tries = wf?.autoRetryCounts?.[label] ?? 0;
+  const tries = runtime.state.workflow?.autoRetryCounts?.[label] ?? 0;
   const maxAuto = 2;
   if (tries < maxAuto) {
-    if (wf) {
-      wf.autoRetryCounts = wf.autoRetryCounts ?? {};
-      wf.autoRetryCounts[label] = tries + 1;
-      await runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(runtime.stateStore, {
+      type: "set-auto-retry-count",
+      label,
+      count: tries + 1,
+      defaultPhase: "integration",
+    });
     return true;
   }
 
@@ -115,10 +116,11 @@ async function runLeadWithOverflowHandling(args: {
 
   let result = await runOnce(initialSessionId);
   if (initialSessionId && result.contextOverflow) {
-    if (args.runtime.state.workflow) {
-      delete args.runtime.state.workflow.techLeadSessionId;
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-tech-lead-session",
+      sessionId: null,
+      defaultPhase: "integration",
+    });
     result = await runOnce(undefined);
   }
 
@@ -199,10 +201,11 @@ async function ensureRemediationTaskFile(args: {
       continue;
     }
 
-    if (args.runtime.state.workflow) {
-      args.runtime.state.workflow.techLeadSessionId = result.sessionId;
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-tech-lead-session",
+      sessionId: result.sessionId ?? null,
+      defaultPhase: "integration",
+    });
 
     if (fileExistsAndHasContent(args.taskFilePath)) return true;
 

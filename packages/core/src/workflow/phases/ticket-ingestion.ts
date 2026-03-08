@@ -12,33 +12,7 @@ import {
 import { sessionMicroRetry, techLeadMicroRetry } from "../micro-retry.js";
 import { generateDecisionCards } from "../decision-cards.js";
 import { hasOkSentinel } from "../sentinels.js";
-
-function ensureWorkflowState(
-  runtime: OttoWorkflowRuntime,
-): NonNullable<OttoWorkflowRuntime["state"]["workflow"]> {
-  if (!runtime.state.workflow) {
-    runtime.state.workflow = {
-      phase: "ticket-created",
-      needsUserInput: false,
-      taskQueue: [],
-      taskAgentSessions: {},
-      reviewerSessions: {},
-    };
-  }
-  if (!runtime.state.workflow.phase) {
-    runtime.state.workflow.phase = "ticket-created";
-  }
-  if (!runtime.state.workflow.taskQueue) {
-    runtime.state.workflow.taskQueue = [];
-  }
-  if (!runtime.state.workflow.taskAgentSessions) {
-    runtime.state.workflow.taskAgentSessions = {};
-  }
-  if (!runtime.state.workflow.reviewerSessions) {
-    runtime.state.workflow.reviewerSessions = {};
-  }
-  return runtime.state.workflow;
-}
+import { dispatchWorkflowAction } from "../state-reducer.js";
 
 function buildTicketIngestionPrompt(args: {
   runtime: OttoWorkflowRuntime;
@@ -73,17 +47,16 @@ function buildTicketIngestionPrompt(args: {
 export async function runTicketIngestionPhase(args: {
   runtime: OttoWorkflowRuntime;
 }): Promise<void> {
-  const wf = ensureWorkflowState(args.runtime);
-
   const runDir = getRunDir(args.runtime.state);
   const planFilePath = getPlanFilePath(args.runtime.state);
   const decisionCardsPath = getDecisionCardsPath(args.runtime.state);
 
-  await args.runtime.stateStore.update((draft) => {
-    if (!draft.workflow) draft.workflow = wf;
-    draft.workflow.runDir = runDir;
-    draft.workflow.planFilePath = planFilePath;
-    draft.workflow.decisionCardsPath = decisionCardsPath;
+  await dispatchWorkflowAction(args.runtime.stateStore, {
+    type: "set-workflow-artifact-paths",
+    runDir,
+    planFilePath,
+    decisionCardsPath,
+    defaultPhase: "ticket-created",
   });
 
   const ticketText = await fs.readFile(
@@ -108,11 +81,14 @@ export async function runTicketIngestionPhase(args: {
       timeoutMs: 15 * 60_000,
     });
 
-  let sessionId = wf.techLeadSessionId;
+  let sessionId = args.runtime.state.workflow?.techLeadSessionId;
   let result = await runOnce(sessionId);
   if (sessionId && result.contextOverflow) {
-    delete wf.techLeadSessionId;
-    await args.runtime.stateStore.save();
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-tech-lead-session",
+      sessionId: null,
+      defaultPhase: "ticket-created",
+    });
     sessionId = undefined;
     result = await runOnce(undefined);
   }
@@ -133,9 +109,10 @@ export async function runTicketIngestionPhase(args: {
     }
   }
 
-  await args.runtime.stateStore.update((draft) => {
-    if (!draft.workflow) draft.workflow = wf;
-    draft.workflow.techLeadSessionId = result.sessionId;
+  await dispatchWorkflowAction(args.runtime.stateStore, {
+    type: "set-tech-lead-session",
+    sessionId: result.sessionId ?? null,
+    defaultPhase: "ticket-created",
   });
 
   if (!fileExistsAndHasContent(planFilePath)) {

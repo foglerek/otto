@@ -5,6 +5,7 @@ import { getTaskAgentSystemReminder } from "../system-reminders.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
 import { getBaseTaskInfo } from "../task-metadata.js";
+import { dispatchWorkflowAction } from "../state-reducer.js";
 
 function formatFailureList(results: Array<{ name: string; ok: boolean }>) {
   const failures = results
@@ -61,7 +62,6 @@ async function runQualityFixAttempt(args: {
   baseTaskPath: string;
   sessionId: string | null;
 }): Promise<FixAttemptResult> {
-  const wf = args.runtime.state.workflow;
   const fixResult = await args.runtime.runners.task.run({
     role: "task",
     phaseName: "quality-fix",
@@ -73,10 +73,12 @@ async function runQualityFixAttempt(args: {
   });
 
   if (args.sessionId && fixResult.contextOverflow) {
-    if (wf?.taskAgentSessions) {
-      wf.taskAgentSessions[args.baseTaskPath] = null;
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-task-agent-session",
+      taskKey: args.baseTaskPath,
+      sessionId: null,
+      defaultPhase: "execution",
+    });
     return { kind: "overflow", sessionId: null };
   }
 
@@ -97,10 +99,12 @@ async function runQualityFixAttempt(args: {
     }
   }
 
-  if (wf?.taskAgentSessions) {
-    wf.taskAgentSessions[args.baseTaskPath] = nextSessionId;
-    await args.runtime.stateStore.save();
-  }
+  await dispatchWorkflowAction(args.runtime.stateStore, {
+    type: "set-task-agent-session",
+    taskKey: args.baseTaskPath,
+    sessionId: nextSessionId,
+    defaultPhase: "execution",
+  });
 
   return { kind: "ok", sessionId: nextSessionId };
 }

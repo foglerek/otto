@@ -12,8 +12,8 @@ import { executeTechLeadDecision } from "./steps/tech-lead-decision.js";
 import { getBaseTaskInfo } from "./task-metadata.js";
 import {
   archiveFailedTaskArtifacts,
-  clearTaskSessionsForBaseTask,
 } from "./task-failure.js";
+import { dispatchWorkflowAction } from "./state-reducer.js";
 
 async function gitCommitTask(
   runtime: OttoWorkflowRuntime,
@@ -201,15 +201,18 @@ export async function executeIntegratedTaskLoop(args: {
       const { baseTaskPath, baseTaskName } = getBaseTaskInfo(taskFile);
       await archiveFailedTaskArtifacts({ runDir: args.runDir, baseTaskName });
 
-      if (args.runtime.state.workflow) {
-        const cleared = clearTaskSessionsForBaseTask(
-          args.runtime.state,
-          baseTaskPath,
-        );
-        if (cleared) {
-          await args.runtime.stateStore.save();
-        }
-      }
+      await dispatchWorkflowAction(args.runtime.stateStore, {
+        type: "set-task-agent-session",
+        taskKey: baseTaskPath,
+        sessionId: null,
+        defaultPhase: "execution",
+      });
+      await dispatchWorkflowAction(args.runtime.stateStore, {
+        type: "set-reviewer-session",
+        taskKey: baseTaskPath,
+        sessionId: null,
+        defaultPhase: "execution",
+      });
 
       await gitDiscardUncommitted(args.runtime);
       await queue.removeCurrentTask();
@@ -222,14 +225,17 @@ export async function executeIntegratedTaskLoop(args: {
 
     // Clear per-task sessions for the base task after acceptance.
     const { baseTaskPath } = getBaseTaskInfo(taskFile);
-    if (args.runtime.state.workflow) {
-      if (args.runtime.state.workflow.taskAgentSessions) {
-        delete args.runtime.state.workflow.taskAgentSessions[baseTaskPath];
-      }
-      if (args.runtime.state.workflow.reviewerSessions) {
-        delete args.runtime.state.workflow.reviewerSessions[baseTaskPath];
-      }
-      await args.runtime.stateStore.save();
-    }
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-task-agent-session",
+      taskKey: baseTaskPath,
+      sessionId: null,
+      defaultPhase: "execution",
+    });
+    await dispatchWorkflowAction(args.runtime.stateStore, {
+      type: "set-reviewer-session",
+      taskKey: baseTaskPath,
+      sessionId: null,
+      defaultPhase: "execution",
+    });
   }
 }

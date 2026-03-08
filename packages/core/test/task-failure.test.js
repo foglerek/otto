@@ -70,30 +70,3 @@ test("archiveFailedTaskArtifacts renames matching artifacts", async () => {
     assert.ok(!listing.has(name));
   }
 });
-
-test("clearTaskSessionsForBaseTask removes base task sessions", () => {
-  const baseTaskPath = "/tmp/task-1-foo.md";
-  const state = {
-    workflow: {
-      taskAgentSessions: {
-        [baseTaskPath]: "session-1",
-        "/tmp/task-2-bar.md": "session-2",
-      },
-      reviewerSessions: {
-        [baseTaskPath]: "review-1",
-        "/tmp/task-2-bar.md": null,
-      },
-    },
-  };
-
-  const changed = failure.clearTaskSessionsForBaseTask(state, baseTaskPath);
-
-  assert.equal(changed, true);
-  assert.equal(state.workflow.taskAgentSessions[baseTaskPath], undefined);
-  assert.equal(state.workflow.reviewerSessions[baseTaskPath], undefined);
-  assert.equal(
-    state.workflow.taskAgentSessions["/tmp/task-2-bar.md"],
-    "session-2",
-  );
-  assert.equal(state.workflow.reviewerSessions["/tmp/task-2-bar.md"], null);
-});

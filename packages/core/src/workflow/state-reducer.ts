@@ -27,6 +27,19 @@ export type WorkflowStateAction =
       taskKey: string;
       sessionId: string | null;
       defaultPhase?: OttoWorkflowPhase;
+    }
+  | {
+      type: "set-auto-retry-count";
+      label: string;
+      count: number;
+      defaultPhase?: OttoWorkflowPhase;
+    }
+  | {
+      type: "set-workflow-artifact-paths";
+      runDir: string;
+      planFilePath: string;
+      decisionCardsPath: string;
+      defaultPhase?: OttoWorkflowPhase;
     };
 
 function ensureWorkflow(
@@ -92,7 +105,19 @@ export function applyWorkflowAction(
     return;
   }
 
-  wf.reviewerSessions![action.taskKey] = action.sessionId;
+  if (action.type === "set-reviewer-session") {
+    wf.reviewerSessions![action.taskKey] = action.sessionId;
+    return;
+  }
+
+  if (action.type === "set-auto-retry-count") {
+    wf.autoRetryCounts![action.label] = action.count;
+    return;
+  }
+
+  wf.runDir = action.runDir;
+  wf.planFilePath = action.planFilePath;
+  wf.decisionCardsPath = action.decisionCardsPath;
 }
 
 export async function dispatchWorkflowAction(
