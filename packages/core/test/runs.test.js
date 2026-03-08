@@ -27,6 +27,7 @@ const writeState = async (repoPath, runId, pid) => {
   const ticketFilePath = path.join(artifactRootDir, "tickets", `${runId}.md`);
 
   const state = {
+    kind: "otto.state",
     version: 1,
     runId,
     createdAt: new Date().toISOString(),

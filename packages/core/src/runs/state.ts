@@ -44,6 +44,7 @@ export function buildInitialRunState(args: {
   const ticketSlug = extractSlugFromTicketId(args.ticketId) ?? args.ticketId;
 
   return {
+    kind: "otto.state",
     version: 1,
     runId,
     createdAt,

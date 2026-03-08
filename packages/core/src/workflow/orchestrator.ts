@@ -1,5 +1,6 @@
 import type { OttoWorkflowRuntime } from "./runtime.js";
 import type { OttoWorkflowPhase } from "../state.js";
+import { dispatchWorkflowAction } from "./state-reducer.js";
 
 import { runTicketIngestionPhase } from "./phases/ticket-ingestion.js";
 import { runDecisionCardsGatePhase } from "./phases/decision-cards-gate.js";
@@ -11,38 +12,25 @@ import { runUserFeedbackPhase } from "./phases/user-feedback.js";
 import { runIntegrationPhase } from "./phases/integration.js";
 import { runFinalizePhase } from "./phases/finalize.js";
 
-function ensureWorkflowPhase(runtime: OttoWorkflowRuntime): OttoWorkflowPhase {
-  if (!runtime.state.workflow) {
-    runtime.state.workflow = {
-      phase: "ticket-created",
-      needsUserInput: false,
-      taskQueue: [],
-      taskAgentSessions: {},
-      reviewerSessions: {},
-    };
-  }
-  if (!runtime.state.workflow.phase) {
-    runtime.state.workflow.phase = "ticket-created";
-  }
-  return runtime.state.workflow.phase;
+async function ensureWorkflowPhase(
+  runtime: OttoWorkflowRuntime,
+): Promise<OttoWorkflowPhase> {
+  const phase = runtime.state.workflow?.phase;
+  if (phase) return phase;
+  await dispatchWorkflowAction(runtime.stateStore, {
+    type: "set-phase",
+    phase: "ticket-created",
+  });
+  return runtime.state.workflow?.phase ?? "ticket-created";
 }
 
 async function setPhase(
   runtime: OttoWorkflowRuntime,
   phase: OttoWorkflowPhase,
 ): Promise<void> {
-  await runtime.stateStore.update((draft) => {
-    if (!draft.workflow) {
-      draft.workflow = {
-        phase,
-        needsUserInput: false,
-        taskQueue: [],
-        taskAgentSessions: {},
-        reviewerSessions: {},
-      };
-      return;
-    }
-    draft.workflow.phase = phase;
+  await dispatchWorkflowAction(runtime.stateStore, {
+    type: "set-phase",
+    phase,
   });
 }
 
@@ -51,7 +39,7 @@ export async function runWorkflowOrchestrator(args: {
 }): Promise<{ stoppedAtPhase: OttoWorkflowPhase }> {
   const maxSteps = 50;
   for (let i = 0; i < maxSteps; i += 1) {
-    const phase = ensureWorkflowPhase(args.runtime);
+    const phase = await ensureWorkflowPhase(args.runtime);
 
     if (phase === "ticket-created") {
       await runTicketIngestionPhase({ runtime: args.runtime });

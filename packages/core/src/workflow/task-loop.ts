@@ -10,6 +10,10 @@ import { summarizeReport } from "./steps/summarize-report.js";
 import { summarizeReview } from "./steps/summarize-review.js";
 import { executeTechLeadDecision } from "./steps/tech-lead-decision.js";
 import { getBaseTaskInfo } from "./task-metadata.js";
+import {
+  archiveFailedTaskArtifacts,
+  clearTaskSessionsForBaseTask,
+} from "./task-failure.js";
 
 async function gitCommitTask(
   runtime: OttoWorkflowRuntime,
@@ -194,6 +198,19 @@ export async function executeIntegratedTaskLoop(args: {
     }
 
     if (decision.acceptanceDecision === "failed") {
+      const { baseTaskPath, baseTaskName } = getBaseTaskInfo(taskFile);
+      await archiveFailedTaskArtifacts({ runDir: args.runDir, baseTaskName });
+
+      if (args.runtime.state.workflow) {
+        const cleared = clearTaskSessionsForBaseTask(
+          args.runtime.state,
+          baseTaskPath,
+        );
+        if (cleared) {
+          await args.runtime.stateStore.save();
+        }
+      }
+
       await gitDiscardUncommitted(args.runtime);
       await queue.removeCurrentTask();
       await queue.addTaskToFront(decision.acceptanceOutput);

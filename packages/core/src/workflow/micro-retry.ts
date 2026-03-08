@@ -8,6 +8,7 @@ import {
 import type { OttoRole } from "@otto/ports";
 
 import { OK_SENTINEL_PATTERN } from "./sentinels.js";
+import { dispatchWorkflowAction } from "./state-reducer.js";
 
 function getReminderForRole(
   runtime: OttoWorkflowRuntime,
@@ -31,10 +32,11 @@ async function persistLeadSession(
   runtime: OttoWorkflowRuntime,
   sessionId?: string,
 ) {
-  if (!runtime.state.workflow) return;
   if (!sessionId) return;
-  runtime.state.workflow.techLeadSessionId = sessionId;
-  await runtime.stateStore.save();
+  await dispatchWorkflowAction(runtime.stateStore, {
+    type: "set-tech-lead-session",
+    sessionId,
+  });
 }
 
 export async function sessionMicroRetry(args: {

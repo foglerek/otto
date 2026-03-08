@@ -3,6 +3,7 @@ import fsSync from "node:fs";
 import path from "node:path";
 
 import type { OttoWorkflowRuntime } from "./runtime.js";
+import { dispatchWorkflowAction } from "./state-reducer.js";
 
 export interface OttoTaskQueue {
   loadTasks(params: {
@@ -27,17 +28,10 @@ async function setQueue(
   runtime: OttoWorkflowRuntime,
   next: string[],
 ): Promise<void> {
-  await runtime.stateStore.update((draft) => {
-    if (!draft.workflow) {
-      draft.workflow = {
-        phase: "execution",
-        needsUserInput: false,
-        taskQueue: [],
-        taskAgentSessions: {},
-        reviewerSessions: {},
-      };
-    }
-    draft.workflow.taskQueue = next;
+  await dispatchWorkflowAction(runtime.stateStore, {
+    type: "set-task-queue",
+    queue: next,
+    defaultPhase: "execution",
   });
 }
 

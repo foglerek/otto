@@ -7,6 +7,7 @@ import { createJiti } from "jiti";
 import type { OttoConfig } from "@otto/config";
 import type { OttoPromptAdapter, OttoRunner } from "@otto/ports";
 
+import { ensureDefaultConfigFile } from "./config-scaffold.js";
 import { createNodeExec } from "./exec.js";
 import { ensureRepoSetup } from "./repo-setup.js";
 import { isRunLockStale, readRunLockFile, writeRunLockFile } from "./locks/run-lock.js";
@@ -125,6 +126,7 @@ async function findNearestOttoConfigPath(startDir: string): Promise<string> {
 
 async function loadConfigFromCwd(): Promise<{ config: OttoConfig; configPath: string }> {
   const configPath = await findNearestOttoConfigPath(process.cwd());
+  await ensureDefaultConfigFile(configPath);
   const config = await loadOttoConfig(configPath);
   return { config, configPath };
 }
@@ -193,10 +195,10 @@ function printHelp(): void {
       "Commands:",
       "  create <ticket-prompt>   create a managed ticket",
       "  ingest <path>            ingest an external ticket file",
-      "  start <ticket>           start a run (stub)",
-      "  resume [ticket|state]    resume a run (stub)",
-      "  active                   list active runs (stub)",
-      "  delete [ticket|state]    delete a run (stub)",
+      "  start <ticket>           start a run",
+      "  resume [ticket|state]    resume a run",
+      "  active                   list active runs",
+      "  delete [ticket|state]    delete a run",
       "  config                   show repo config",
       "",
       "Notes:",
@@ -226,12 +228,33 @@ function failNoRunner(): void {
 }
 
 function getProjectLeadRunner(config: OttoConfig): OttoRunner | null {
-  return (
+  const runner =
     config.runners?.byRole?.projectLead ??
     config.runners?.byRole?.lead ??
     config.runners?.default ??
-    null
+    null;
+  return isUsableRunner(runner) ? runner : null;
+}
+
+function getWorkflowRunner(config: OttoConfig, role: "lead" | "task" | "reviewer" | "summarize"):
+  | OttoRunner
+  | null {
+  const runner = config.runners?.byRole?.[role] ?? config.runners?.default ?? null;
+  return isUsableRunner(runner) ? runner : null;
+}
+
+function hasUsableWorkflowRunners(config: OttoConfig): boolean {
+  return Boolean(
+    getWorkflowRunner(config, "lead") &&
+      getWorkflowRunner(config, "task") &&
+      getWorkflowRunner(config, "reviewer") &&
+      getWorkflowRunner(config, "summarize"),
   );
+}
+
+function isUsableRunner(runner: OttoRunner | null | undefined): runner is OttoRunner {
+  if (!runner) return false;
+  return runner.id !== "echo" && runner.kind !== "echo";
 }
 
 function isRetryableTicketError(err: unknown): boolean {
@@ -544,6 +567,10 @@ async function handleStartCommand(args: string[]): Promise<void> {
     failNoRunner();
     return;
   }
+  if (!hasUsableWorkflowRunners(config)) {
+    failNoRunner();
+    return;
+  }
 
   const mainRepoPath = await config.worktree.adapter.getMainRepoPath(process.cwd());
   const { artifactPaths } = await ensureRepoSetup({ mainRepoPath, config });
@@ -658,6 +685,10 @@ async function handleResumeCommand(args: string[]): Promise<void> {
   const { config } = await loadConfigFromCwd();
   const runner = getProjectLeadRunner(config);
   if (!runner) {
+    failNoRunner();
+    return;
+  }
+  if (!hasUsableWorkflowRunners(config)) {
     failNoRunner();
     return;
   }

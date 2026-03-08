@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 export interface OttoStateV1 {
+  kind: "otto.state";
   version: 1;
   runId: string;
   createdAt: string;
@@ -82,6 +83,9 @@ export async function loadOttoState(
   }
 
   const s = data as Partial<OttoStateV1>;
+  if (s.kind !== "otto.state") {
+    throw new Error(`Invalid state kind: ${String(s.kind)} (expected 'otto.state')`);
+  }
   if (s.version !== 1) {
     throw new Error(
       `Unsupported state version: ${String(s.version)} (expected 1)`,
