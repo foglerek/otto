@@ -39,6 +39,26 @@ Both are intentionally ignored by git.
 - `git`
 - `zig` (required to build OpenTUI dependencies during development)
 
+## Install Binary (curl | bash)
+
+Install the latest released binary for your platform:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/foglerek/otto/main/scripts/install.sh | bash
+```
+
+Optional controls:
+
+- `OTTO_VERSION` to pin a version (for example `v0.1.0`)
+- `OTTO_INSTALL_DIR` to override install directory (defaults to `$HOME/.local/bin`)
+- `OTTO_REPO` to override GitHub repo slug (defaults to `foglerek/otto`)
+
+Example (pin version + custom directory):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/foglerek/otto/main/scripts/install.sh | OTTO_VERSION=v0.1.0 OTTO_INSTALL_DIR="$HOME/bin" bash
+```
+
 ## Local Development
 
 Install + build:

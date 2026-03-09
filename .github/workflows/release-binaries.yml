@@ -58,11 +58,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Attach installer script
+        run: |
+          cp scripts/install.sh dist/install.sh
+          chmod +x dist/install.sh
 
       - name: Attach to release
         uses: softprops/action-gh-release@v2
