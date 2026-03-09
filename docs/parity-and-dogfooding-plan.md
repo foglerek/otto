@@ -19,7 +19,10 @@ Completed high-impact parity slices:
 Remaining release-impact gaps:
 
 1. Execute the full replacement dogfooding loop and close parity with real ticket runs.
-2. Wire execution-level subagent orchestration (strategy exists; runtime delegation still pending).
+2. Implement cross-task subagent orchestration (strategy exists; runtime scheduler and per-task isolation are still pending).
+
+Note: per-task execution remains sequential by invariant:
+`implementation -> deterministic quality checks -> review -> lead decision`.
 
 ## Dogfooding Replacement Loop
 
