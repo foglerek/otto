@@ -2,6 +2,8 @@
 
 This document tracks the current differential parity status against the legacy task manager extraction and defines the replacement dogfooding loop for cutover.
 
+Execution details for Stage 1 and Stage 2 are in `docs/dogfooding-runbook.md`.
+
 ## Current Status
 
 Completed high-impact parity slices:
