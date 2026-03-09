@@ -196,3 +196,57 @@ test("runner options override model config by role", async () => {
     CUSTOM_FLAG: "1",
   });
 });
+
+test("runner supports settings path and inline settings", async () => {
+  const runner = mod.createClaudeCodeRunner({
+    default: {
+      settingsPath: "/tmp/claude.settings.json",
+    },
+    byRole: {
+      summarize: {
+        settingsInline: { model: "fast", safety: "strict" },
+      },
+    },
+  });
+
+  const calls = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout: resultLine({ type: "result", result: "ok", is_error: false }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  await runner.run({
+    role: "summarize",
+    phaseName: "summarize",
+    prompt: "inline",
+    cwd: process.cwd(),
+    exec,
+  });
+
+  const summarizeCmd = calls[0].cmd;
+  const settingsIdx = summarizeCmd.indexOf("--settings");
+  assert.notEqual(settingsIdx, -1);
+  assert.deepEqual(JSON.parse(summarizeCmd[settingsIdx + 1]), {
+    model: "fast",
+    safety: "strict",
+  });
+
+  calls.length = 0;
+  await runner.run({
+    role: "lead",
+    phaseName: "plan",
+    prompt: "path",
+    cwd: process.cwd(),
+    exec,
+  });
+
+  const leadCmd = calls[0].cmd;
+  const leadSettingsIdx = leadCmd.indexOf("--settings");
+  assert.notEqual(leadSettingsIdx, -1);
+  assert.equal(leadCmd[leadSettingsIdx + 1], "/tmp/claude.settings.json");
+});

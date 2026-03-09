@@ -19,6 +19,8 @@ type ModelConfig = {
   maxOutputTokens?: number;
   extraArgs?: string[];
   env?: Record<string, string>;
+  settingsPath?: string;
+  settingsInline?: unknown;
 };
 
 export type ClaudeCodeRunnerOptions = {
@@ -109,6 +111,12 @@ function buildClaudeArgs(
 
   if (options.sessionId) {
     args.push("--resume", options.sessionId);
+  }
+
+  if (modelConfig.settingsInline !== undefined) {
+    args.push("--settings", JSON.stringify(modelConfig.settingsInline));
+  } else if (modelConfig.settingsPath) {
+    args.push("--settings", modelConfig.settingsPath);
   }
 
   const schemaArg = toJsonSchemaArg(options.jsonSchema);
