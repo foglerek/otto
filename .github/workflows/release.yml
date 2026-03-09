@@ -24,18 +24,32 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Evaluate release mode
+        id: release_mode
+        run: node scripts/release/evaluate-mode.mjs
+        env:
+          RELEASE_REQUIRE_MAIN: "1"
+
+      - name: Skip release when no releasable changes
+        if: steps.release_mode.outputs.mode == 'none'
+        run: echo "No release action needed for this push."
+
       - name: Setup Bun
+        if: steps.release_mode.outputs.mode != 'none'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install dependencies
+        if: steps.release_mode.outputs.mode != 'none'
         run: bun install --frozen-lockfile
 
       - name: Validate repository
+        if: steps.release_mode.outputs.mode != 'none'
         run: bun run lint && bun run typecheck && bun run test && bun run build
 
       - name: Verify release secrets
+        if: steps.release_mode.outputs.mode != 'none'
         run: |
           if [ -z "${NPM_TOKEN}" ]; then
             echo "NPM_TOKEN is required for release publishing" >&2
@@ -45,6 +59,7 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Version or publish packages
+        if: steps.release_mode.outputs.mode != 'none'
         uses: changesets/action@v1
         with:
           version: bun run version-packages

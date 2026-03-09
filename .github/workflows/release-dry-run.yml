@@ -21,6 +21,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Evaluate release mode
+        id: release_mode
+        run: node scripts/release/evaluate-mode.mjs
+
+      - name: Report release mode
+        run: |
+          echo "mode=${{ steps.release_mode.outputs.mode }}"
+          echo "changeset_count=${{ steps.release_mode.outputs.changeset_count }}"
+          echo "head_subject=${{ steps.release_mode.outputs.head_subject }}"
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -33,7 +43,9 @@ jobs:
         run: bun run lint && bun run typecheck && bun run test && bun run build
 
       - name: Snapshot version dry-run
+        if: steps.release_mode.outputs.mode != 'none'
         run: bun run version-packages -- --snapshot dryrun
 
       - name: Show versioning diff
+        if: steps.release_mode.outputs.mode != 'none'
         run: git --no-pager diff --stat
