@@ -252,13 +252,13 @@ export function createOpentuiPromptAdapter(): OttoPromptAdapter {
 
 type DashboardRun = {
   runId: string;
-  askSlug: string;
+  ticketSlug: string;
   createdAt: string;
   branchName: string;
   stateFilePath: string;
 };
 
-async function loadRuns(statesDir: string): Promise<DashboardRun[]> {
+export async function loadRuns(statesDir: string): Promise<DashboardRun[]> {
   let names: string[];
   try {
     names = await fs.readdir(statesDir);
@@ -277,7 +277,7 @@ async function loadRuns(statesDir: string): Promise<DashboardRun[]> {
       const data = JSON.parse(raw) as any;
       results.push({
         runId: String(data.runId ?? name.replace(/\.json$/, "")),
-        askSlug: String(data.ask?.slug ?? ""),
+        ticketSlug: String(data.ticket?.slug ?? data.ask?.slug ?? ""),
         createdAt: String(data.createdAt ?? ""),
         branchName: String(data.worktree?.branchName ?? ""),
         stateFilePath: filePath,
@@ -306,7 +306,7 @@ function DashboardApp(props: { statesDir: string; onExit: () => void }) {
   });
 
   const options = runs.map((r) => ({
-    name: r.askSlug ? `${r.askSlug} (${r.runId})` : r.runId,
+    name: r.ticketSlug ? `${r.ticketSlug} (${r.runId})` : r.runId,
     description: r.branchName,
     value: r,
   }));
@@ -361,7 +361,7 @@ function DashboardApp(props: { statesDir: string; onExit: () => void }) {
             <>
               <text>Selected Run</text>
               <text opacity={0.6}>runId: {selected.runId}</text>
-              <text opacity={0.6}>ask: {selected.askSlug || "(unknown)"}</text>
+              <text opacity={0.6}>ticket: {selected.ticketSlug || "(unknown)"}</text>
               <text opacity={0.6}>
                 branch: {selected.branchName || "(unknown)"}
               </text>
