@@ -19,7 +19,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src --ext .ts,.tsx --max-warnings=0",
-    "test": "bun test test/*.test.ts",
+    "test": "bun test test",
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
