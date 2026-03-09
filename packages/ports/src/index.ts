@@ -89,6 +89,18 @@ export interface OttoWorktreeAdapter {
     branchName: string;
     deleteBranch: boolean;
   }): Promise<void>;
+
+  evictWorktreeProcesses?(args: {
+    mainRepoPath: string;
+    worktreePath: string;
+    branchName: string;
+    exec: OttoExec;
+    logger: {
+      info(message: string, meta?: Record<string, unknown>): void;
+      warn(message: string, meta?: Record<string, unknown>): void;
+      error(message: string, meta?: Record<string, unknown>): void;
+    };
+  }): Promise<void>;
 }
 
 export interface OttoQualityCheck {

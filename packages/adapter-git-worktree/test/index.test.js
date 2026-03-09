@@ -97,3 +97,49 @@ test("adapter creates and removes worktree", async () => {
     child.on("error", reject);
   });
 });
+
+test("adapter process eviction hook is best-effort", async () => {
+  const repo = await initRepo();
+  const adapter = mod.createGitWorktreeAdapter();
+
+  const branchName = "otto-2026-02-04-evict";
+  const created = await adapter.createWorktree({
+    mainRepoPath: repo,
+    baseBranch: "main",
+    branchName,
+    worktreesDir: ".worktrees",
+  });
+
+  const logger = {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
+  const exec = {
+    run: async () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      timedOut: false,
+    }),
+  };
+
+  await assert.doesNotReject(async () => {
+    if (adapter.evictWorktreeProcesses) {
+      await adapter.evictWorktreeProcesses({
+        mainRepoPath: repo,
+        worktreePath: created.worktreePath,
+        branchName,
+        exec,
+        logger,
+      });
+    }
+  });
+
+  await adapter.removeWorktree({
+    mainRepoPath: repo,
+    worktreePath: created.worktreePath,
+    branchName,
+    deleteBranch: true,
+  });
+});

@@ -120,3 +120,42 @@ test("runOttoCleanup removes run artifact folder when deleteArtifacts=true", asy
 
   await assert.rejects(() => fs.stat(runDir));
 });
+
+test("runOttoCleanup evicts worktree processes before removal when adapter supports it", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "otto-cleanup-evict-"));
+  const state = makeState(root);
+  const calls = [];
+
+  const config = {
+    worktree: {
+      adapter: {
+        evictWorktreeProcesses: async (args) => {
+          calls.push(["evict", args.worktreePath, args.branchName, typeof args.exec.run]);
+        },
+        removeWorktree: async (args) => {
+          calls.push(["remove", args.worktreePath, args.branchName]);
+        },
+      },
+    },
+  };
+
+  await cleanup.runOttoCleanup({
+    state,
+    config,
+    prompt: makePrompt(),
+    force: true,
+  });
+
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], [
+    "evict",
+    state.worktree.worktreePath,
+    state.worktree.branchName,
+    "function",
+  ]);
+  assert.deepEqual(calls[1], [
+    "remove",
+    state.worktree.worktreePath,
+    state.worktree.branchName,
+  ]);
+});

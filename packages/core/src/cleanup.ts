@@ -84,6 +84,23 @@ export async function runOttoCleanup(args: {
     }
   }
 
+  if (config.worktree.adapter.evictWorktreeProcesses) {
+    try {
+      await config.worktree.adapter.evictWorktreeProcesses({
+        mainRepoPath: worktree.mainRepoPath,
+        worktreePath: worktree.worktreePath,
+        branchName: worktree.branchName,
+        exec,
+        logger,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to evict processes for worktree ${worktree.worktreePath} (branch ${worktree.branchName}): ${message}`,
+      );
+    }
+  }
+
   try {
     await config.worktree.adapter.removeWorktree({
       mainRepoPath: worktree.mainRepoPath,
