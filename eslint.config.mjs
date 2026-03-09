@@ -50,16 +50,6 @@ export default [
       "max-params": ["error", { max: 5 }],
     },
   },
-  // Temporary exception while core CLI is being modularized.
-  {
-    files: ["packages/core/src/index.ts"],
-    rules: {
-      "max-lines": [
-        "error",
-        { max: 1200, skipBlankLines: true, skipComments: true },
-      ],
-    },
-  },
   // File/function size + complexity guardrails (UI layer)
   {
     files: ["packages/ui-opentui/src/**/*.{ts,tsx}"],
