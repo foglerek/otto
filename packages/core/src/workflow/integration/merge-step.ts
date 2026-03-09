@@ -5,6 +5,8 @@ import type { OttoWorkflowRuntime } from "../runtime.js";
 import { createIntegrationRemediationTask } from "./remediation-task.js";
 import type { IntegrationStepResult } from "./types.js";
 
+type CreateIntegrationRemediationTask = typeof createIntegrationRemediationTask;
+
 async function git(
   args: OttoWorkflowRuntime,
   cmd: string[],
@@ -82,8 +84,9 @@ async function restoreStash(
 async function createMergeConflictRemediation(args: {
   runtime: OttoWorkflowRuntime;
   failureSummary: string;
+  createRemediationTask: CreateIntegrationRemediationTask;
 }): Promise<IntegrationStepResult> {
-  const task = await createIntegrationRemediationTask({
+  const task = await args.createRemediationTask({
     runtime: args.runtime,
     type: "merge-conflict",
     failureSummary: args.failureSummary,
@@ -96,6 +99,7 @@ async function createMergeConflictRemediation(args: {
 
 async function handleMergeAlreadyInProgress(
   runtime: OttoWorkflowRuntime,
+  createRemediationTask: CreateIntegrationRemediationTask,
 ): Promise<IntegrationStepResult | null> {
   const inProgress = await hasMergeInProgress(runtime);
   if (!inProgress) return null;
@@ -104,6 +108,7 @@ async function handleMergeAlreadyInProgress(
   if (conflicts) {
     return await createMergeConflictRemediation({
       runtime,
+      createRemediationTask,
       failureSummary:
         "A merge is already in progress and there are unresolved conflicts (diff-filter=U).",
     });
@@ -113,6 +118,7 @@ async function handleMergeAlreadyInProgress(
   if (cont.exitCode !== 0 || cont.timedOut) {
     return await createMergeConflictRemediation({
       runtime,
+      createRemediationTask,
       failureSummary: `Merge continuation failed:\n${cont.stderr || cont.stdout}`,
     });
   }
@@ -175,6 +181,7 @@ async function mergeIntoWorktree(args: {
 
 export async function runMergeStep(args: {
   runtime: OttoWorkflowRuntime;
+  createRemediationTask?: CreateIntegrationRemediationTask;
 }): Promise<IntegrationStepResult> {
   const ok = await args.runtime.prompt.confirm(
     `Integration: merge ${args.runtime.state.worktree.baseBranch} into worktree?`,
@@ -183,8 +190,13 @@ export async function runMergeStep(args: {
   if (!ok) return { outcome: "aborted", message: "User aborted merge step" };
 
   const runtime = args.runtime;
+  const createRemediationTask =
+    args.createRemediationTask ?? createIntegrationRemediationTask;
 
-  const inProgress = await handleMergeAlreadyInProgress(runtime);
+  const inProgress = await handleMergeAlreadyInProgress(
+    runtime,
+    createRemediationTask,
+  );
   if (inProgress) return inProgress;
 
   const mergeTarget = await resolveMergeTarget(runtime);
@@ -192,6 +204,7 @@ export async function runMergeStep(args: {
   if (!merge.ok) {
     return await createMergeConflictRemediation({
       runtime,
+      createRemediationTask,
       failureSummary: `Merge failed:\n${merge.stderrOrStdout}${merge.stashRef ? `\n\nAutostash: ${merge.stashRef}` : ""}`,
     });
   }
@@ -201,6 +214,7 @@ export async function runMergeStep(args: {
     if (!restored) {
       return await createMergeConflictRemediation({
         runtime,
+        createRemediationTask,
         failureSummary: `Merge succeeded but failed to restore stash ${merge.stashRef}. Resolve manually.`,
       });
     }
