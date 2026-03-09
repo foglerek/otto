@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import type { OttoWorkflowRuntime } from "./runtime.js";
-import { createTaskQueue } from "./task-queue.js";
+import { createTaskQueue, type OttoTaskQueue } from "./task-queue.js";
 import { executeTask } from "./steps/task-execution.js";
 import { executeQualityCheck } from "./steps/quality-check.js";
 import { executeTaskReview } from "./steps/task-review.js";
@@ -14,6 +14,107 @@ import {
   archiveFailedTaskArtifacts,
 } from "./task-failure.js";
 import { dispatchWorkflowAction } from "./state-reducer.js";
+
+const RECOVERY_RESTART = "Restart task";
+const RECOVERY_SKIP = "Skip and advance";
+const RECOVERY_ABORT = "Abort run";
+
+export type TaskRecoveryAction =
+  | "restart-task"
+  | "skip-and-advance"
+  | "abort-run";
+
+function normalizeTaskRecoveryChoice(choice: string): TaskRecoveryAction {
+  switch (choice) {
+    case RECOVERY_SKIP:
+      return "skip-and-advance";
+    case RECOVERY_ABORT:
+      return "abort-run";
+    case RECOVERY_RESTART:
+    default:
+      return "restart-task";
+  }
+}
+
+export async function selectTaskRecoveryAction(args: {
+  runtime: OttoWorkflowRuntime;
+  taskFile: string;
+  reason: string;
+}): Promise<TaskRecoveryAction> {
+  const choice = await args.runtime.prompt.select(
+    `Task ${path.basename(args.taskFile)} failed (${args.reason}). Choose recovery action:`,
+    {
+      choices: [RECOVERY_RESTART, RECOVERY_SKIP, RECOVERY_ABORT],
+      defaultValue: RECOVERY_RESTART,
+    },
+  );
+  return normalizeTaskRecoveryChoice(choice);
+}
+
+export async function applyTaskRecoveryAction(args: {
+  queue: OttoTaskQueue;
+  action: TaskRecoveryAction;
+  taskFile: string;
+  restartTaskPath: string;
+}): Promise<void> {
+  if (args.action === "abort-run") {
+    throw new Error(`Task recovery aborted by user: ${args.taskFile}`);
+  }
+
+  await args.queue.removeCurrentTask();
+  if (args.action === "restart-task") {
+    await args.queue.addTaskToFront(args.restartTaskPath);
+  }
+}
+
+async function clearSessionsForBaseTask(
+  runtime: OttoWorkflowRuntime,
+  baseTaskPath: string,
+): Promise<void> {
+  await dispatchWorkflowAction(runtime.stateStore, {
+    type: "set-task-agent-session",
+    taskKey: baseTaskPath,
+    sessionId: null,
+    defaultPhase: "execution",
+  });
+  await dispatchWorkflowAction(runtime.stateStore, {
+    type: "set-reviewer-session",
+    taskKey: baseTaskPath,
+    sessionId: null,
+    defaultPhase: "execution",
+  });
+}
+
+async function recoverFromTaskFailure(args: {
+  runtime: OttoWorkflowRuntime;
+  queue: OttoTaskQueue;
+  runDir: string;
+  taskFile: string;
+  reason: string;
+  restartTaskPath: string;
+}): Promise<void> {
+  const action = await selectTaskRecoveryAction({
+    runtime: args.runtime,
+    taskFile: args.taskFile,
+    reason: args.reason,
+  });
+
+  if (action === "abort-run") {
+    throw new Error(`Task recovery aborted by user (${args.reason}): ${args.taskFile}`);
+  }
+
+  const { baseTaskPath, baseTaskName } = getBaseTaskInfo(args.restartTaskPath);
+  await archiveFailedTaskArtifacts({ runDir: args.runDir, baseTaskName });
+  await clearSessionsForBaseTask(args.runtime, baseTaskPath);
+  await gitDiscardUncommitted(args.runtime);
+
+  await applyTaskRecoveryAction({
+    queue: args.queue,
+    action,
+    taskFile: args.taskFile,
+    restartTaskPath: args.restartTaskPath,
+  });
+}
 
 async function gitCommitTask(
   runtime: OttoWorkflowRuntime,
@@ -133,7 +234,15 @@ export async function executeIntegratedTaskLoop(args: {
 
     const taskExec = await executeTask(args.runtime, taskFile);
     if (!taskExec) {
-      throw new Error(`Task execution failed: ${taskFile}`);
+      await recoverFromTaskFailure({
+        runtime: args.runtime,
+        queue,
+        runDir: args.runDir,
+        taskFile,
+        reason: "execution",
+        restartTaskPath: taskFile,
+      });
+      continue;
     }
 
     const qualityPassed = await executeQualityCheck({
@@ -149,7 +258,15 @@ export async function executeIntegratedTaskLoop(args: {
       reportFilePath: taskExec.reportFilePath,
     });
     if (!reviewPath) {
-      throw new Error(`Task review failed: ${taskFile}`);
+      await recoverFromTaskFailure({
+        runtime: args.runtime,
+        queue,
+        runDir: args.runDir,
+        taskFile,
+        reason: "review",
+        restartTaskPath: taskFile,
+      });
+      continue;
     }
 
     const reportSummaryPath = await summarizeReport({
@@ -183,11 +300,14 @@ export async function executeIntegratedTaskLoop(args: {
     });
 
     if (!decision) {
-      const retry = await args.runtime.prompt.confirm(
-        "Tech lead decision failed. Retry?",
-        { defaultValue: true },
-      );
-      if (!retry) throw new Error("Tech lead decision failed.");
+      await recoverFromTaskFailure({
+        runtime: args.runtime,
+        queue,
+        runDir: args.runDir,
+        taskFile,
+        reason: "tech lead decision",
+        restartTaskPath: taskFile,
+      });
       continue;
     }
 
@@ -198,25 +318,14 @@ export async function executeIntegratedTaskLoop(args: {
     }
 
     if (decision.acceptanceDecision === "failed") {
-      const { baseTaskPath, baseTaskName } = getBaseTaskInfo(taskFile);
-      await archiveFailedTaskArtifacts({ runDir: args.runDir, baseTaskName });
-
-      await dispatchWorkflowAction(args.runtime.stateStore, {
-        type: "set-task-agent-session",
-        taskKey: baseTaskPath,
-        sessionId: null,
-        defaultPhase: "execution",
+      await recoverFromTaskFailure({
+        runtime: args.runtime,
+        queue,
+        runDir: args.runDir,
+        taskFile,
+        reason: "tech lead marked task as failed",
+        restartTaskPath: decision.acceptanceOutput,
       });
-      await dispatchWorkflowAction(args.runtime.stateStore, {
-        type: "set-reviewer-session",
-        taskKey: baseTaskPath,
-        sessionId: null,
-        defaultPhase: "execution",
-      });
-
-      await gitDiscardUncommitted(args.runtime);
-      await queue.removeCurrentTask();
-      await queue.addTaskToFront(decision.acceptanceOutput);
       continue;
     }
 
@@ -225,17 +334,6 @@ export async function executeIntegratedTaskLoop(args: {
 
     // Clear per-task sessions for the base task after acceptance.
     const { baseTaskPath } = getBaseTaskInfo(taskFile);
-    await dispatchWorkflowAction(args.runtime.stateStore, {
-      type: "set-task-agent-session",
-      taskKey: baseTaskPath,
-      sessionId: null,
-      defaultPhase: "execution",
-    });
-    await dispatchWorkflowAction(args.runtime.stateStore, {
-      type: "set-reviewer-session",
-      taskKey: baseTaskPath,
-      sessionId: null,
-      defaultPhase: "execution",
-    });
+    await clearSessionsForBaseTask(args.runtime, baseTaskPath);
   }
 }
