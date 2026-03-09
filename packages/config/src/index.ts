@@ -98,6 +98,12 @@ export interface OttoWorkflowHooksConfig {
   afterStep?(ctx: OttoWorkflowStepAfterHookContext): Promise<void>;
 }
 
+export interface OttoSubagentStrategyConfig {
+  enabled?: boolean;
+  maxConcurrent?: number;
+  byRole?: Partial<Record<OttoRole, OttoRunner>>;
+}
+
 export interface OttoWorktreeConfig {
   baseBranch: string;
   worktreesDir?: string;
@@ -123,6 +129,8 @@ export interface OttoConfig {
   retryPolicy?: OttoRetryPolicyConfig;
 
   hooks?: OttoWorkflowHooksConfig;
+
+  subagents?: OttoSubagentStrategyConfig;
 
   // Post-merge / integration-only checks (optional). If adapter is omitted,
   // Otto will fall back to `quality.adapter`.

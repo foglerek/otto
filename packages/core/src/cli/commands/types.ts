@@ -1,6 +1,7 @@
 export type OttoCommand =
   | "root"
   | "help"
+  | "onboarding"
   | "create"
   | "ingest"
   | "start"

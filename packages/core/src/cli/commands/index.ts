@@ -1,6 +1,7 @@
 import type { CommandHandler, OttoCommand } from "./types.js";
 
 import { handleRootCommand } from "./root.js";
+import { handleOnboardingCommand } from "./onboarding.js";
 import { handleCreateCommand } from "./create.js";
 import { handleIngestCommand } from "./ingest.js";
 import { handleStartCommand } from "./start.js";
@@ -13,6 +14,7 @@ import { printHelp } from "../output.js";
 const commandHandlers: Record<OttoCommand, CommandHandler> = {
   root: handleRootCommand,
   help: async () => printHelp(),
+  onboarding: async () => handleOnboardingCommand(),
   create: handleCreateCommand,
   ingest: handleIngestCommand,
   start: handleStartCommand,

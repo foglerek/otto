@@ -11,6 +11,7 @@ import { handleConfigCommand } from "./config.js";
 import { handleStartCommand } from "./start.js";
 import { handleResumeCommand } from "./resume.js";
 import { handleDeleteCommand } from "./delete.js";
+import { handleOnboardingCommand } from "./onboarding.js";
 import { runTicketAmend, runTicketCreate } from "./tickets.js";
 
 export async function handleRootCommand(): Promise<void> {
@@ -38,6 +39,7 @@ export async function handleRootCommand(): Promise<void> {
         "Start Run",
         "Resume Run",
         "Delete Run",
+        "Onboarding",
         "Config",
         "Exit",
       ],
@@ -47,6 +49,11 @@ export async function handleRootCommand(): Promise<void> {
 
     if (action === "Config") {
       await handleConfigCommand();
+      continue;
+    }
+
+    if (action === "Onboarding") {
+      await handleOnboardingCommand();
       continue;
     }
 

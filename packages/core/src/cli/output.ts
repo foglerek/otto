@@ -8,6 +8,7 @@ const NON_INTERACTIVE_COMMANDS = [
   "otto resume",
   "otto active",
   "otto delete",
+  "otto onboarding",
   "otto config",
 ];
 
@@ -48,6 +49,7 @@ export function printHelp(): void {
           { name: "resume", usage: "otto resume [ticket|state]" },
           { name: "active", usage: "otto active" },
           { name: "delete", usage: "otto delete [ticket|state]" },
+          { name: "onboarding", usage: "otto onboarding" },
           { name: "config", usage: "otto config" },
         ],
       })}\n`,
@@ -69,6 +71,7 @@ export function printHelp(): void {
       "  resume [ticket|state]    resume a run",
       "  active                   list active runs",
       "  delete [ticket|state]    delete a run",
+      "  onboarding               run onboarding checks and guidance",
       "  config                   show repo config",
       "",
       "Notes:",
