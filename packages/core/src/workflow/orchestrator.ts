@@ -2,6 +2,7 @@ import type { OttoWorkflowRuntime } from "./runtime.js";
 import type { OttoWorkflowPhase } from "../state.js";
 import { dispatchWorkflowAction } from "./state-reducer.js";
 import { emitRunEvent } from "./events.js";
+import { runPhaseWithHooks } from "./hooks.js";
 
 import { runTicketIngestionPhase } from "./phases/ticket-ingestion.js";
 import { runDecisionCardsGatePhase } from "./phases/decision-cards-gate.js";
@@ -56,49 +57,95 @@ export async function runWorkflowOrchestrator(args: {
     });
 
     if (phase === "ticket-created") {
-      await runTicketIngestionPhase({ runtime: args.runtime });
+      await runPhaseWithHooks({
+        runtime: args.runtime,
+        phase,
+        run: async () => {
+          await runTicketIngestionPhase({ runtime: args.runtime });
+        },
+      });
       await setPhase(args.runtime, "ticket-ingested");
       continue;
     }
 
     if (phase === "ticket-ingested") {
-      await runDecisionCardsGatePhase({ runtime: args.runtime });
+      await runPhaseWithHooks({
+        runtime: args.runtime,
+        phase,
+        run: async () => {
+          await runDecisionCardsGatePhase({ runtime: args.runtime });
+        },
+      });
       await setPhase(args.runtime, "decision-cards");
       continue;
     }
 
     if (phase === "decision-cards") {
-      await runPlanFeedbackPhase({ runtime: args.runtime });
+      await runPhaseWithHooks({
+        runtime: args.runtime,
+        phase,
+        run: async () => {
+          await runPlanFeedbackPhase({ runtime: args.runtime });
+        },
+      });
       await setPhase(args.runtime, "plan-created");
       continue;
     }
 
     if (phase === "plan-created") {
+      await runPhaseWithHooks({
+        runtime: args.runtime,
+        phase,
+        run: async () => undefined,
+      });
       await setPhase(args.runtime, "task-splitting");
       continue;
     }
 
     if (phase === "task-splitting") {
-      await runTaskSplittingPhase({ runtime: args.runtime });
+      await runPhaseWithHooks({
+        runtime: args.runtime,
+        phase,
+        run: async () => {
+          await runTaskSplittingPhase({ runtime: args.runtime });
+        },
+      });
       await setPhase(args.runtime, "task-feedback");
       continue;
     }
 
     if (phase === "task-feedback") {
-      await runTaskFeedbackPhase({ runtime: args.runtime });
+      await runPhaseWithHooks({
+        runtime: args.runtime,
+        phase,
+        run: async () => {
+          await runTaskFeedbackPhase({ runtime: args.runtime });
+        },
+      });
       await setPhase(args.runtime, "execution");
       continue;
     }
 
     if (phase === "execution") {
-      await runExecutionPhase({ runtime: args.runtime });
+      await runPhaseWithHooks({
+        runtime: args.runtime,
+        phase,
+        run: async () => {
+          await runExecutionPhase({ runtime: args.runtime });
+        },
+      });
       await setPhase(args.runtime, "user-feedback");
       continue;
     }
 
     if (phase === "user-feedback") {
-      const { reenterExecution } = await runUserFeedbackPhase({
+      const { reenterExecution } = await runPhaseWithHooks({
         runtime: args.runtime,
+        phase,
+        run: async () =>
+          await runUserFeedbackPhase({
+            runtime: args.runtime,
+          }),
       });
       await setPhase(
         args.runtime,
@@ -108,7 +155,11 @@ export async function runWorkflowOrchestrator(args: {
     }
 
     if (phase === "integration") {
-      const result = await runIntegrationPhase({ runtime: args.runtime });
+      const result = await runPhaseWithHooks({
+        runtime: args.runtime,
+        phase,
+        run: async () => await runIntegrationPhase({ runtime: args.runtime }),
+      });
       if (result.tasksCreated) {
         await setPhase(args.runtime, "execution");
         continue;
@@ -121,7 +172,13 @@ export async function runWorkflowOrchestrator(args: {
     }
 
     if (phase === "finalize") {
-      await runFinalizePhase({ runtime: args.runtime });
+      await runPhaseWithHooks({
+        runtime: args.runtime,
+        phase,
+        run: async () => {
+          await runFinalizePhase({ runtime: args.runtime });
+        },
+      });
       await setPhase(args.runtime, "cleanup");
       continue;
     }

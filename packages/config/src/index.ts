@@ -69,6 +69,35 @@ export interface OttoRetryPolicyConfig {
   qualityFixMaxAttempts?: number;
 }
 
+export interface OttoWorkflowPhaseHookContext {
+  phase: string;
+  state: unknown;
+  exec: OttoExec;
+}
+
+export interface OttoWorkflowStepHookContext extends OttoWorkflowPhaseHookContext {
+  step: string;
+}
+
+export interface OttoWorkflowPhaseAfterHookContext
+  extends OttoWorkflowPhaseHookContext {
+  result?: unknown;
+  error?: string;
+}
+
+export interface OttoWorkflowStepAfterHookContext
+  extends OttoWorkflowStepHookContext {
+  result?: unknown;
+  error?: string;
+}
+
+export interface OttoWorkflowHooksConfig {
+  beforePhase?(ctx: OttoWorkflowPhaseHookContext): Promise<void>;
+  afterPhase?(ctx: OttoWorkflowPhaseAfterHookContext): Promise<void>;
+  beforeStep?(ctx: OttoWorkflowStepHookContext): Promise<void>;
+  afterStep?(ctx: OttoWorkflowStepAfterHookContext): Promise<void>;
+}
+
 export interface OttoWorktreeConfig {
   baseBranch: string;
   worktreesDir?: string;
@@ -92,6 +121,8 @@ export interface OttoConfig {
   summaries?: OttoSummariesConfig;
 
   retryPolicy?: OttoRetryPolicyConfig;
+
+  hooks?: OttoWorkflowHooksConfig;
 
   // Post-merge / integration-only checks (optional). If adapter is omitted,
   // Otto will fall back to `quality.adapter`.

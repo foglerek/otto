@@ -14,6 +14,7 @@ import {
   archiveFailedTaskArtifacts,
 } from "./task-failure.js";
 import { dispatchWorkflowAction } from "./state-reducer.js";
+import { runStepWithHooks } from "./hooks.js";
 
 const RECOVERY_RESTART = "Restart task";
 const RECOVERY_SKIP = "Skip and advance";
@@ -232,7 +233,12 @@ export async function executeIntegratedTaskLoop(args: {
     const taskFile = queue.getCurrentTask();
     if (!taskFile) break;
 
-    const taskExec = await executeTask(args.runtime, taskFile);
+    const taskExec = await runStepWithHooks({
+      runtime: args.runtime,
+      phase: "execution",
+      step: "task-execution",
+      run: async () => await executeTask(args.runtime, taskFile),
+    });
     if (!taskExec) {
       await recoverFromTaskFailure({
         runtime: args.runtime,
@@ -245,17 +251,29 @@ export async function executeIntegratedTaskLoop(args: {
       continue;
     }
 
-    const qualityPassed = await executeQualityCheck({
+    const qualityPassed = await runStepWithHooks({
       runtime: args.runtime,
-      taskFile,
-      reportFilePath: taskExec.reportFilePath,
-      sessionId: taskExec.sessionId,
+      phase: "execution",
+      step: "quality-check",
+      run: async () =>
+        await executeQualityCheck({
+          runtime: args.runtime,
+          taskFile,
+          reportFilePath: taskExec.reportFilePath,
+          sessionId: taskExec.sessionId,
+        }),
     });
 
-    const reviewPath = await executeTaskReview({
+    const reviewPath = await runStepWithHooks({
       runtime: args.runtime,
-      taskFile,
-      reportFilePath: taskExec.reportFilePath,
+      phase: "execution",
+      step: "task-review",
+      run: async () =>
+        await executeTaskReview({
+          runtime: args.runtime,
+          taskFile,
+          reportFilePath: taskExec.reportFilePath,
+        }),
     });
     if (!reviewPath) {
       await recoverFromTaskFailure({
@@ -269,13 +287,25 @@ export async function executeIntegratedTaskLoop(args: {
       continue;
     }
 
-    const reportSummaryPath = await summarizeReport({
+    const reportSummaryPath = await runStepWithHooks({
       runtime: args.runtime,
-      reportFilePath: taskExec.reportFilePath,
+      phase: "execution",
+      step: "summarize-report",
+      run: async () =>
+        await summarizeReport({
+          runtime: args.runtime,
+          reportFilePath: taskExec.reportFilePath,
+        }),
     });
-    const reviewSummaryPath = await summarizeReview({
+    const reviewSummaryPath = await runStepWithHooks({
       runtime: args.runtime,
-      reviewFilePath: reviewPath,
+      phase: "execution",
+      step: "summarize-review",
+      run: async () =>
+        await summarizeReview({
+          runtime: args.runtime,
+          reviewFilePath: reviewPath,
+        }),
     });
 
     const reportSummaryContent = reportSummaryPath
@@ -285,18 +315,24 @@ export async function executeIntegratedTaskLoop(args: {
       ? await fs.readFile(reviewSummaryPath, "utf8")
       : undefined;
 
-    const decision = await executeTechLeadDecision({
+    const decision = await runStepWithHooks({
       runtime: args.runtime,
-      taskFile,
-      taskResult: {
-        reportFilePath: taskExec.reportFilePath,
-        reviewFilePath: reviewPath,
-        reportSummaryContent,
-        reviewSummaryContent,
-        ...(qualityPassed
-          ? {}
-          : { fullReportFilePath: taskExec.reportFilePath }),
-      },
+      phase: "execution",
+      step: "tech-lead-decision",
+      run: async () =>
+        await executeTechLeadDecision({
+          runtime: args.runtime,
+          taskFile,
+          taskResult: {
+            reportFilePath: taskExec.reportFilePath,
+            reviewFilePath: reviewPath,
+            reportSummaryContent,
+            reviewSummaryContent,
+            ...(qualityPassed
+              ? {}
+              : { fullReportFilePath: taskExec.reportFilePath }),
+          },
+        }),
     });
 
     if (!decision) {
