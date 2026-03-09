@@ -4,27 +4,8 @@ import { fileExistsAndHasContent } from "../file-utils.js";
 import { getPlanFilePath, toWorktreePath } from "../paths.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
+import { maybeAutoRetry } from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
-
-async function maybeRetry(
-  runtime: OttoWorkflowRuntime,
-  label: string,
-): Promise<boolean> {
-  const tries = runtime.state.workflow?.autoRetryCounts?.[label] ?? 0;
-  const maxAuto = 2;
-  if (tries < maxAuto) {
-    await dispatchWorkflowAction(runtime.stateStore, {
-      type: "set-auto-retry-count",
-      label,
-      count: tries + 1,
-      defaultPhase: "plan-feedback",
-    });
-    return true;
-  }
-  return await runtime.prompt.confirm(`${label} failed. Retry?`, {
-    defaultValue: true,
-  });
-}
 
 async function applyPlanFeedbackUpdate(args: {
   runtime: OttoWorkflowRuntime;
@@ -67,7 +48,11 @@ async function applyPlanFeedbackUpdate(args: {
     }
 
     if (!result.success) {
-      const retry = await maybeRetry(args.runtime, "Plan feedback");
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: "Plan feedback",
+        defaultPhase: "plan-feedback",
+      });
       if (!retry) {
         throw new Error(result.error ?? "Plan feedback failed.");
       }
@@ -82,7 +67,11 @@ async function applyPlanFeedbackUpdate(args: {
         message: "Reply with <OK> only when the plan update is complete.",
       });
       if (!ok) {
-        const retry = await maybeRetry(args.runtime, "Plan feedback");
+        const retry = await maybeAutoRetry({
+          runtime: args.runtime,
+          label: "Plan feedback",
+          defaultPhase: "plan-feedback",
+        });
         if (!retry) {
           throw new Error("Plan feedback missing <OK> sentinel.");
         }
@@ -96,7 +85,11 @@ async function applyPlanFeedbackUpdate(args: {
       sessionIdForRetry: result.sessionId ?? sessionId ?? null,
     });
     if (!planOk) {
-      const retry = await maybeRetry(args.runtime, "Plan feedback");
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: "Plan feedback",
+        defaultPhase: "plan-feedback",
+      });
       if (!retry) {
         throw new Error("Plan feedback missing updated plan file.");
       }

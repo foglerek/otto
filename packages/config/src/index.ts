@@ -63,6 +63,12 @@ export interface OttoSummariesConfig {
   maxAttempts?: number;
 }
 
+export interface OttoRetryPolicyConfig {
+  autoRetryLimit?: number;
+  decisionCardsMaxIterations?: number;
+  qualityFixMaxAttempts?: number;
+}
+
 export interface OttoWorktreeConfig {
   baseBranch: string;
   worktreesDir?: string;
@@ -84,6 +90,8 @@ export interface OttoConfig {
   quality?: OttoQualityConfig;
 
   summaries?: OttoSummariesConfig;
+
+  retryPolicy?: OttoRetryPolicyConfig;
 
   // Post-merge / integration-only checks (optional). If adapter is omitted,
   // Otto will fall back to `quality.adapter`.

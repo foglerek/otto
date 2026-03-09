@@ -14,6 +14,10 @@ import {
   toWorktreePath,
 } from "../paths.js";
 import { hasOkSentinel } from "../sentinels.js";
+import {
+  getDecisionCardsMaxIterations,
+  maybeAutoRetry,
+} from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
 
 function buildDecisionCardFeedback(summary: {
@@ -40,27 +44,6 @@ function buildDecisionCardFeedback(summary: {
     }
   }
   return blocks.join("\n");
-}
-
-async function maybeRetry(
-  runtime: OttoWorkflowRuntime,
-  label: string,
-): Promise<boolean> {
-  const tries = runtime.state.workflow?.autoRetryCounts?.[label] ?? 0;
-  const maxAuto = 2;
-  if (tries < maxAuto) {
-    await dispatchWorkflowAction(runtime.stateStore, {
-      type: "set-auto-retry-count",
-      label,
-      count: tries + 1,
-      defaultPhase: "decision-cards",
-    });
-    return true;
-  }
-
-  return await runtime.prompt.confirm(`${label} failed. Retry?`, {
-    defaultValue: true,
-  });
 }
 
 async function applyDecisionCardsPlanUpdate(args: {
@@ -106,7 +89,11 @@ async function applyDecisionCardsPlanUpdate(args: {
     }
 
     if (!result.success) {
-      const retry = await maybeRetry(args.runtime, "Decision card feedback");
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: "Decision card feedback",
+        defaultPhase: "decision-cards",
+      });
       if (!retry) {
         throw new Error(result.error ?? "Decision card feedback failed.");
       }
@@ -121,7 +108,11 @@ async function applyDecisionCardsPlanUpdate(args: {
         message: "Reply with <OK> only when the plan update is complete.",
       });
       if (!ok) {
-        const retry = await maybeRetry(args.runtime, "Decision card feedback");
+        const retry = await maybeAutoRetry({
+          runtime: args.runtime,
+          label: "Decision card feedback",
+          defaultPhase: "decision-cards",
+        });
         if (!retry) {
           throw new Error("Decision card feedback missing <OK> sentinel.");
         }
@@ -135,7 +126,11 @@ async function applyDecisionCardsPlanUpdate(args: {
       sessionIdForRetry: result.sessionId ?? sessionId ?? null,
     });
     if (!planOk) {
-      const retry = await maybeRetry(args.runtime, "Decision card feedback");
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: "Decision card feedback",
+        defaultPhase: "decision-cards",
+      });
       if (!retry) {
         throw new Error("Decision card feedback missing updated plan file.");
       }
@@ -191,7 +186,8 @@ export async function runDecisionCardsGatePhase(args: {
   const decisionCardsPath = getDecisionCardsPath(args.runtime.state);
 
   let attempt = 0;
-  while (attempt < 5) {
+  const maxIterations = getDecisionCardsMaxIterations(args.runtime);
+  while (attempt < maxIterations) {
     attempt += 1;
     const decisionCards = await ensureDecisionCards({
       runtime: args.runtime,

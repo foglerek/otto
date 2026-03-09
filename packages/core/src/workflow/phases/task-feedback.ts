@@ -8,27 +8,8 @@ import { getPlanFilePath, getRunDir, toWorktreePath } from "../paths.js";
 import { createTaskQueue } from "../task-queue.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
+import { maybeAutoRetry } from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
-
-async function maybeRetry(
-  runtime: OttoWorkflowRuntime,
-  label: string,
-): Promise<boolean> {
-  const tries = runtime.state.workflow?.autoRetryCounts?.[label] ?? 0;
-  const maxAuto = 2;
-  if (tries < maxAuto) {
-    await dispatchWorkflowAction(runtime.stateStore, {
-      type: "set-auto-retry-count",
-      label,
-      count: tries + 1,
-      defaultPhase: "task-feedback",
-    });
-    return true;
-  }
-  return await runtime.prompt.confirm(`${label} failed. Retry?`, {
-    defaultValue: true,
-  });
-}
 
 async function applyTaskFeedbackUpdate(args: {
   runtime: OttoWorkflowRuntime;
@@ -61,7 +42,11 @@ async function applyTaskFeedbackUpdate(args: {
     }
 
     if (!result.success) {
-      const retry = await maybeRetry(args.runtime, "Task feedback");
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: "Task feedback",
+        defaultPhase: "task-feedback",
+      });
       if (!retry) {
         throw new Error(result.error ?? "Task feedback failed.");
       }
@@ -77,7 +62,11 @@ async function applyTaskFeedbackUpdate(args: {
           "Reply with <OK> only when the task feedback updates are complete.",
       });
       if (!ok) {
-        const retry = await maybeRetry(args.runtime, "Task feedback");
+        const retry = await maybeAutoRetry({
+          runtime: args.runtime,
+          label: "Task feedback",
+          defaultPhase: "task-feedback",
+        });
         if (!retry) {
           throw new Error("Task feedback missing <OK> sentinel.");
         }
@@ -92,7 +81,11 @@ async function applyTaskFeedbackUpdate(args: {
       sessionIdForRetry: result.sessionId ?? sessionId ?? null,
     });
     if (!artifactsOk) {
-      const retry = await maybeRetry(args.runtime, "Task feedback");
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: "Task feedback",
+        defaultPhase: "task-feedback",
+      });
       if (!retry) {
         throw new Error("Task feedback missing updated artifacts.");
       }

@@ -8,6 +8,7 @@ import { getRunDir, toWorktreePath } from "../paths.js";
 import { createTaskQueue } from "../task-queue.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
+import { maybeAutoRetry } from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
 
 export type IntegrationRemediationType =
@@ -22,27 +23,6 @@ const typeToSlug: Record<IntegrationRemediationType, string> = {
   "integration-tests": "integration-tests-remediation",
   "fe-prune": "fe-prune-remediation",
 };
-
-async function maybeRetry(
-  runtime: OttoWorkflowRuntime,
-  label: string,
-): Promise<boolean> {
-  const tries = runtime.state.workflow?.autoRetryCounts?.[label] ?? 0;
-  const maxAuto = 2;
-  if (tries < maxAuto) {
-    await dispatchWorkflowAction(runtime.stateStore, {
-      type: "set-auto-retry-count",
-      label,
-      count: tries + 1,
-      defaultPhase: "integration",
-    });
-    return true;
-  }
-
-  return await runtime.prompt.confirm(`${label} failed. Retry?`, {
-    defaultValue: true,
-  });
-}
 
 function buildTaskPrompt(args: {
   runtime: OttoWorkflowRuntime;
@@ -183,7 +163,11 @@ async function ensureRemediationTaskFile(args: {
     });
 
     if (!result.success) {
-      const retry = await maybeRetry(args.runtime, args.label);
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: args.label,
+        defaultPhase: "integration",
+      });
       if (!retry) return false;
       continue;
     }
@@ -196,7 +180,11 @@ async function ensureRemediationTaskFile(args: {
         "Reply with <OK> only when the remediation task file is created.",
     });
     if (!ok) {
-      const retry = await maybeRetry(args.runtime, args.label);
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: args.label,
+        defaultPhase: "integration",
+      });
       if (!retry) return false;
       continue;
     }
@@ -219,7 +207,11 @@ async function ensureRemediationTaskFile(args: {
     }
 
     await fs.unlink(args.taskFilePath).catch(() => undefined);
-    const retry = await maybeRetry(args.runtime, args.label);
+    const retry = await maybeAutoRetry({
+      runtime: args.runtime,
+      label: args.label,
+      defaultPhase: "integration",
+    });
     if (!retry) return false;
   }
 }

@@ -8,28 +8,8 @@ import { getRunDir, toWorktreePath } from "../paths.js";
 import { createTaskQueue } from "../task-queue.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
+import { maybeAutoRetry } from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
-
-async function maybeRetry(
-  runtime: OttoWorkflowRuntime,
-  label: string,
-): Promise<boolean> {
-  const tries = runtime.state.workflow?.autoRetryCounts?.[label] ?? 0;
-  const maxAuto = 2;
-  if (tries < maxAuto) {
-    await dispatchWorkflowAction(runtime.stateStore, {
-      type: "set-auto-retry-count",
-      label,
-      count: tries + 1,
-      defaultPhase: "user-feedback",
-    });
-    return true;
-  }
-
-  return await runtime.prompt.confirm(`${label} failed. Retry?`, {
-    defaultValue: true,
-  });
-}
 
 function buildUserFeedbackTaskPrompt(args: {
   runtime: OttoWorkflowRuntime;
@@ -146,7 +126,11 @@ async function ensureUserFeedbackTaskFile(args: {
     });
 
     if (!result.success) {
-      const retry = await maybeRetry(args.runtime, args.label);
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: args.label,
+        defaultPhase: "user-feedback",
+      });
       if (!retry) return false;
       continue;
     }
@@ -158,7 +142,11 @@ async function ensureUserFeedbackTaskFile(args: {
       message: "Reply with <OK> only when the task file is created.",
     });
     if (!ok) {
-      const retry = await maybeRetry(args.runtime, args.label);
+      const retry = await maybeAutoRetry({
+        runtime: args.runtime,
+        label: args.label,
+        defaultPhase: "user-feedback",
+      });
       if (!retry) return false;
       continue;
     }
@@ -181,7 +169,11 @@ async function ensureUserFeedbackTaskFile(args: {
     }
 
     await fs.unlink(args.taskFilePath).catch(() => undefined);
-    const retry = await maybeRetry(args.runtime, args.label);
+    const retry = await maybeAutoRetry({
+      runtime: args.runtime,
+      label: args.label,
+      defaultPhase: "user-feedback",
+    });
     if (!retry) return false;
   }
 }

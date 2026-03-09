@@ -5,6 +5,7 @@ import { getTaskAgentSystemReminder } from "../system-reminders.js";
 import { sessionMicroRetry } from "../micro-retry.js";
 import { hasOkSentinel } from "../sentinels.js";
 import { getBaseTaskInfo } from "../task-metadata.js";
+import { getQualityFixMaxAttempts } from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
 
 function formatFailureList(results: Array<{ name: string; ok: boolean }>) {
@@ -124,7 +125,7 @@ export async function executeQualityCheck(args: {
     args.runtime.state.workflow?.taskAgentSessions?.[baseTaskPath] ??
     null;
 
-  const MAX_FIX_ATTEMPTS = 2;
+  const maxFixAttempts = getQualityFixMaxAttempts(args.runtime);
   let attempt = 0;
 
   const runChecks = async () =>
@@ -137,7 +138,7 @@ export async function executeQualityCheck(args: {
   let result = await runChecks();
   if (result.ok) return true;
 
-  while (!result.ok && attempt < MAX_FIX_ATTEMPTS) {
+  while (!result.ok && attempt < maxFixAttempts) {
     attempt += 1;
 
     const fixPrompt = buildFixPrompt({
