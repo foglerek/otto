@@ -129,6 +129,16 @@
         "typescript": "^5.7.3",
       },
     },
+    "packages/runner-opencode-cli": {
+      "name": "@otto/runner-opencode-cli",
+      "version": "0.0.0",
+      "dependencies": {
+        "@otto/ports": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.3",
+      },
+    },
     "packages/ui-opentui": {
       "name": "@otto/ui-opentui",
       "version": "0.0.0",
@@ -322,6 +332,8 @@
     "@otto/runner-codex-cli": ["@otto/runner-codex-cli@workspace:packages/runner-codex-cli"],
 
     "@otto/runner-echo": ["@otto/runner-echo@workspace:packages/runner-echo"],
+
+    "@otto/runner-opencode-cli": ["@otto/runner-opencode-cli@workspace:packages/runner-opencode-cli"],
 
     "@otto/ui-opentui": ["@otto/ui-opentui@workspace:packages/ui-opentui"],
 
