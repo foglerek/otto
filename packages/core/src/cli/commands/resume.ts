@@ -6,6 +6,7 @@ import { loadOttoState } from "../../state.js";
 import { runOttoRun } from "../../run.js";
 import { isRunLockStale, readRunLockFile } from "../../locks/run-lock.js";
 import { output, fail, failNoRunner } from "../output.js";
+import { reportExecEventToTerminal, reportRunEventToTerminal } from "../run-progress.js";
 import { loadConfigFromCwd, getPromptAdapter } from "../config.js";
 import { hasUsableWorkflowRunners } from "../runner-gating.js";
 import { acquireRunLock, releaseRunLock, resolveStateFilePath } from "./common.js";
@@ -79,6 +80,8 @@ export async function handleResumeCommand(args: string[]): Promise<void> {
       stateFilePath: state.stateFilePath,
       config,
       prompt,
+      onRunEvent: reportRunEventToTerminal,
+      onExecEvent: reportExecEventToTerminal,
     });
     output(
       {

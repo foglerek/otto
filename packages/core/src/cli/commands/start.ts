@@ -8,6 +8,7 @@ import { buildInitialRunState } from "../../runs/state.js";
 import { runOttoRun } from "../../run.js";
 import { createNodeExec } from "../../exec.js";
 import { output, fail, failNoRunner } from "../output.js";
+import { reportExecEventToTerminal, reportRunEventToTerminal } from "../run-progress.js";
 import { loadConfigFromCwd, getPromptAdapter } from "../config.js";
 import { hasUsableWorkflowRunners } from "../runner-gating.js";
 import { pathExists } from "../utils.js";
@@ -261,6 +262,8 @@ export async function handleStartCommand(args: string[]): Promise<void> {
       stateFilePath: state.stateFilePath,
       config,
       prompt,
+      onRunEvent: reportRunEventToTerminal,
+      onExecEvent: reportExecEventToTerminal,
     });
     output(
       {

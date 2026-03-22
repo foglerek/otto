@@ -13,6 +13,7 @@ import { resolveWorkflowRunners } from "./workflow/runtime.js";
 import { runWorkflowOrchestrator } from "./workflow/orchestrator.js";
 import { getPlanFilePath } from "./workflow/paths.js";
 import { createRunEventLogger, emitRunEvent } from "./workflow/events.js";
+import type { OttoExecEvent, OttoRunEvent } from "./workflow/events.js";
 
 function toPreview(text: string, maxChars = 2000): string {
   if (text.length <= maxChars) {
@@ -32,13 +33,29 @@ export async function runOttoRun(args: {
   stateFilePath: string;
   config: OttoConfig;
   prompt: OttoPromptAdapter;
+  onRunEvent?: (event: OttoRunEvent) => void | Promise<void>;
+  onExecEvent?: (event: OttoExecEvent) => void | Promise<void>;
 }): Promise<{ planFilePath: string; stoppedAtPhase: string }> {
   const registry = createProcessRegistry();
   const detachHandlers = attachProcessRegistryExitHandlers(registry);
-  const events = createRunEventLogger({
+  const fileEvents = createRunEventLogger({
     runId: args.state.runId,
     runDir: args.state.runDir,
   });
+  const events = {
+    append: async (event: OttoRunEvent): Promise<void> => {
+      await fileEvents.append(event);
+      if (args.onRunEvent) {
+        await args.onRunEvent(event);
+      }
+    },
+    appendExec: async (event: OttoExecEvent): Promise<void> => {
+      await fileEvents.appendExec(event);
+      if (args.onExecEvent) {
+        await args.onExecEvent(event);
+      }
+    },
+  };
   const exec = createNodeExec({
     registry,
     onResult: async (event) => {
