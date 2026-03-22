@@ -14,6 +14,19 @@ import { runWorkflowOrchestrator } from "./workflow/orchestrator.js";
 import { getPlanFilePath } from "./workflow/paths.js";
 import { createRunEventLogger, emitRunEvent } from "./workflow/events.js";
 
+function toPreview(text: string, maxChars = 2000): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  const half = Math.floor(maxChars / 2);
+  const hidden = text.length - half * 2;
+  return [
+    text.slice(0, half),
+    `\n...[truncated ${hidden} chars]...\n`,
+    text.slice(text.length - half),
+  ].join("");
+}
+
 export async function runOttoRun(args: {
   state: OttoStateV1;
   stateFilePath: string;
@@ -40,6 +53,8 @@ export async function runOttoRun(args: {
         durationMs: event.durationMs,
         stdoutBytes: Buffer.byteLength(event.stdout, "utf8"),
         stderrBytes: Buffer.byteLength(event.stderr, "utf8"),
+        stdoutPreview: toPreview(event.stdout),
+        stderrPreview: toPreview(event.stderr),
       });
     },
   });

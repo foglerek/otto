@@ -19,6 +19,8 @@ export interface OttoExecEvent {
   durationMs: number;
   stdoutBytes: number;
   stderrBytes: number;
+  stdoutPreview?: string;
+  stderrPreview?: string;
 }
 
 export interface OttoRunEventLogger {

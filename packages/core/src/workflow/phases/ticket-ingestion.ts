@@ -15,6 +15,21 @@ import {
 } from "../micro-retry.js";
 import { generateDecisionCards } from "../decision-cards.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
+import { emitRunEvent } from "../events.js";
+
+function previewForEvent(text: string | undefined, maxChars = 800): string {
+  const value = (text ?? "").trim();
+  if (value.length <= maxChars) {
+    return value;
+  }
+  const half = Math.floor(maxChars / 2);
+  const hidden = value.length - half * 2;
+  return [
+    value.slice(0, half),
+    `\n...[truncated ${hidden} chars]...\n`,
+    value.slice(value.length - half),
+  ].join("");
+}
 
 function buildTicketIngestionPrompt(args: {
   runtime: OttoWorkflowRuntime;
@@ -95,7 +110,31 @@ export async function runTicketIngestionPhase(args: {
     result = await runOnce(undefined);
   }
 
+  await emitRunEvent({
+    logger: args.runtime.events,
+    runId: args.runtime.state.runId,
+    type: "ticket_ingestion_runner_result",
+    data: {
+      success: result.success,
+      timedOut: result.timedOut ?? false,
+      contextOverflow: result.contextOverflow ?? false,
+      outputChars: (result.outputText ?? "").length,
+      outputPreview: previewForEvent(result.outputText),
+      returnedSessionId: result.sessionId ?? null,
+      resumedSessionId: sessionId ?? null,
+    },
+  });
+
   if (!result.success) {
+    await emitRunEvent({
+      logger: args.runtime.events,
+      runId: args.runtime.state.runId,
+      type: "ticket_ingestion_failed_before_artifact",
+      data: {
+        error: result.error ?? "Ticket ingestion failed.",
+        outputPreview: previewForEvent(result.outputText),
+      },
+    });
     throw new Error(result.error ?? "Ticket ingestion failed.");
   }
 
@@ -105,6 +144,16 @@ export async function runTicketIngestionPhase(args: {
     sessionId: result.sessionId ?? sessionId ?? null,
     outputText: result.outputText,
     message: "Reply with <OK> only when ticket ingestion is complete.",
+  });
+
+  await emitRunEvent({
+    logger: args.runtime.events,
+    runId: args.runtime.state.runId,
+    type: "ticket_ingestion_sentinel_check",
+    data: {
+      hasSentinel,
+      sessionIdAvailable: Boolean(result.sessionId ?? sessionId),
+    },
   });
 
   const persistedLeadSessionId =
@@ -117,18 +166,62 @@ export async function runTicketIngestionPhase(args: {
 
   if (!fileExistsAndHasContent(planFilePath)) {
     const worktreePlanFilePath = getWorktreePlanFilePath(args.runtime.state);
-    if (fileExistsAndHasContent(worktreePlanFilePath)) {
+    const worktreePlanExists = fileExistsAndHasContent(worktreePlanFilePath);
+    await emitRunEvent({
+      logger: args.runtime.events,
+      runId: args.runtime.state.runId,
+      type: "ticket_ingestion_plan_check",
+      data: {
+        planFilePath,
+        worktreePlanFilePath,
+        mainPlanExists: false,
+        worktreePlanExists,
+      },
+    });
+
+    if (worktreePlanExists) {
       args.runtime.reminders.techLead.push(
         `You wrote Otto artifacts under the worktree. All artifacts must be written under the main repo .otto. Move or recreate the plan at: ${planFilePath}`,
       );
-      await techLeadMicroRetry({
-        runtime: args.runtime,
-        message: `Move or recreate the plan file at the correct path: ${planFilePath}`,
+      let retrySucceeded = false;
+      try {
+        await techLeadMicroRetry({
+          runtime: args.runtime,
+          message: `Move or recreate the plan file at the correct path: ${planFilePath}`,
+        });
+        retrySucceeded = true;
+      } catch {
+        // Ignore retry failure; artifact validation below remains authoritative.
+      }
+
+      const planExistsAfterRetry = fileExistsAndHasContent(planFilePath);
+      await emitRunEvent({
+        logger: args.runtime.events,
+        runId: args.runtime.state.runId,
+        type: "ticket_ingestion_wrong_directory_retry",
+        data: {
+          retrySucceeded,
+          planExistsAfterRetry,
+          techLeadSessionId: args.runtime.state.workflow?.techLeadSessionId ?? null,
+        },
       });
     }
   }
 
   if (!fileExistsAndHasContent(planFilePath)) {
+    const worktreePlanFilePath = getWorktreePlanFilePath(args.runtime.state);
+    const worktreePlanExists = fileExistsAndHasContent(worktreePlanFilePath);
+    await emitRunEvent({
+      logger: args.runtime.events,
+      runId: args.runtime.state.runId,
+      type: "ticket_ingestion_failed_plan_missing",
+      data: {
+        planFilePath,
+        worktreePlanFilePath,
+        worktreePlanExists,
+        techLeadSessionId: args.runtime.state.workflow?.techLeadSessionId ?? null,
+      },
+    });
     throw new Error(`Plan file missing or empty: ${planFilePath}`);
   }
 

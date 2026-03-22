@@ -15,6 +15,18 @@ function makeExec(result, calls) {
   };
 }
 
+function makeExecSequence(results, calls) {
+  let index = 0;
+  return {
+    async run(cmd, options) {
+      calls.push({ cmd, options });
+      const next = results[Math.min(index, results.length - 1)];
+      index += 1;
+      return next;
+    },
+  };
+}
+
 function line(payload) {
   return `${JSON.stringify(payload)}\n`;
 }
@@ -49,7 +61,7 @@ test("opencode runner builds command and parses result", async () => {
     role: "summarize",
     phaseName: "summarize",
     prompt: "Summarize report",
-    cwd: process.cwd(),
+    cwd: "/tmp/repo/.worktrees/workflow-2026-03-22-summarize",
     exec,
   });
 
@@ -62,6 +74,8 @@ test("opencode runner builds command and parses result", async () => {
   assert.equal(call.cmd.includes("run"), true);
   assert.equal(call.cmd.includes("--format"), true);
   assert.equal(call.cmd.includes("json"), true);
+  assert.equal(call.cmd.includes("--dir"), true);
+  assert.equal(call.cmd.includes("/tmp/repo"), true);
   assert.equal(call.cmd.includes("--model"), true);
   assert.equal(call.cmd.includes("openai/gpt-5.3-codex"), true);
   assert.equal(call.cmd.includes("--variant"), true);
@@ -75,6 +89,31 @@ test("opencode runner builds command and parses result", async () => {
     OPENCODE_CONFIG_CONTENT: JSON.stringify({ style: "brief" }),
   });
   assert.equal(call.options.label, "opencode:summarize:summarize");
+});
+
+test("opencode runner omits --dir outside .worktrees cwd", async () => {
+  const runner = mod.createOpencodeCliRunner();
+  const calls = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout: line({ type: "result", result: "ok" }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  const out = await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "do thing",
+    cwd: "/tmp/repo",
+    exec,
+  });
+
+  assert.equal(out.success, true);
+  assert.equal(calls[0].cmd.includes("--dir"), false);
 });
 
 test("opencode runner includes session continuation flag", async () => {
@@ -181,4 +220,99 @@ test("opencode runner carries timeout metadata", async () => {
 
   assert.equal(out.success, false);
   assert.equal(out.timedOut, true);
+});
+
+test("opencode runner treats internal schema failure as error", async () => {
+  const runner = mod.createOpencodeCliRunner();
+  const calls = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout:
+        "schema validation failure stack trace:\n" +
+        "      at createUserMessage (/$bunfs/root/src/index.js:242039:35)\n",
+      stderr:
+        "ZodError: Invalid string: must start with \"prt\"\n",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  const out = await runner.run({
+    role: "lead",
+    phaseName: "ticket-ingestion",
+    prompt: "plan",
+    cwd: process.cwd(),
+    exec,
+  });
+
+  assert.equal(out.success, false);
+  assert.match(out.error ?? "", /schema validation failure|zoderror/i);
+  assert.equal(calls.length, 2);
+  assert.equal(typeof calls[1].options.env?.XDG_CONFIG_HOME, "string");
+});
+
+test("opencode runner recovers from prt schema failure with isolated config retry", async () => {
+  const runner = mod.createOpencodeCliRunner();
+  const calls = [];
+  const exec = makeExecSequence(
+    [
+      {
+        exitCode: 0,
+        stdout:
+          "schema validation failure stack trace:\n" +
+          "      at createUserMessage (/$bunfs/root/src/index.js:242039:35)\n",
+        stderr:
+          "ZodError: Invalid string: must start with \"prt\"\n",
+        timedOut: false,
+      },
+      {
+        exitCode: 0,
+        stdout: line({ type: "result", result: "ok", session_id: "retry-sid" }),
+        stderr: "",
+        timedOut: false,
+      },
+    ],
+    calls,
+  );
+
+  const out = await runner.run({
+    role: "lead",
+    phaseName: "ticket-ingestion",
+    prompt: "plan",
+    cwd: process.cwd(),
+    exec,
+  });
+
+  assert.equal(out.success, true);
+  assert.equal(out.outputText, "ok");
+  assert.equal(out.sessionId, "retry-sid");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.env?.XDG_CONFIG_HOME, undefined);
+  assert.equal(typeof calls[1].options.env?.XDG_CONFIG_HOME, "string");
+});
+
+test("opencode runner requires final JSON result record", async () => {
+  const runner = mod.createOpencodeCliRunner();
+  const calls = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout: line({ type: "status", session_id: "s-only-status" }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  const out = await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "do thing",
+    cwd: process.cwd(),
+    exec,
+  });
+
+  assert.equal(out.success, false);
+  assert.match(out.error ?? "", /did not emit a final json result/i);
 });

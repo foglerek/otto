@@ -1,4 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import type {
   OttoRole,
@@ -20,11 +23,15 @@ export type OpencodeCliRunnerOptions = {
   binary?: string;
   default?: OpencodeModelConfig;
   byRole?: Partial<Record<OttoRole, OpencodeModelConfig>>;
+  isolateConfigRetry?: boolean;
 };
 
 const DEFAULT_BINARY = "opencode";
 const CONTEXT_OVERFLOW_PATTERN =
   /context|prompt.*too.*long|token.*limit|maximum context|too many tokens/i;
+const INTERNAL_FAILURE_PATTERN =
+  /schema validation failure|zoderror|invalid_format|must start with "prt"/i;
+const ISOLATED_CONFIG_RECOVERY_PATTERN = /must start with "prt"|createusermessage/i;
 
 const DEFAULT_BY_ROLE: Record<OttoRole, OpencodeModelConfig> = {
   projectLead: { model: "openai/gpt-5.3-codex", variant: "xhigh" },
@@ -41,6 +48,16 @@ type ParsedOutput = {
   finalText?: string;
   finalError?: string;
   lastText?: string;
+  sawFinalRecord: boolean;
+};
+
+type RunnerAttempt = {
+  execResult: Awaited<ReturnType<OttoRunnerRunOptions["exec"]["run"]>>;
+  parsed: ParsedOutput;
+  outputText: string;
+  sessionId?: string;
+  combined: string;
+  contextOverflow: boolean;
 };
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -231,7 +248,7 @@ function applyJsonRecord(parsed: ParsedOutput, obj: JsonRecord): void {
 }
 
 function parseStreamJson(stdout: string): ParsedOutput {
-  const parsed: ParsedOutput = {};
+  const parsed: ParsedOutput = { sawFinalRecord: false };
 
   for (const line of stdout.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -243,6 +260,10 @@ function parseStreamJson(stdout: string): ParsedOutput {
     if (!obj) {
       parsed.lastText = trimmed;
       continue;
+    }
+
+    if (isFinalRecord(obj)) {
+      parsed.sawFinalRecord = true;
     }
 
     applyJsonRecord(parsed, obj);
@@ -257,6 +278,15 @@ function buildArgs(args: {
   config: OpencodeModelConfig;
 }): string[] {
   const cmd: string[] = [args.binary, "run", "--format", "json"];
+
+  const worktreesMarker = `${path.sep}.worktrees${path.sep}`;
+  const markerIndex = args.run.cwd.lastIndexOf(worktreesMarker);
+  if (markerIndex > 0) {
+    const mainRepoPath = args.run.cwd.slice(0, markerIndex);
+    if (mainRepoPath.length > 0) {
+      cmd.push("--dir", mainRepoPath);
+    }
+  }
 
   if (args.config.model) {
     cmd.push("--model", args.config.model);
@@ -300,6 +330,131 @@ class OpencodeCliRunner implements OttoRunner {
 
   constructor(private readonly options: OpencodeCliRunnerOptions = {}) {}
 
+  private async runAttempt(args: {
+    runOptions: OttoRunnerRunOptions;
+    cmd: string[];
+    env?: Record<string, string>;
+  }): Promise<RunnerAttempt> {
+    const execResult = await args.runOptions.exec.run(args.cmd, {
+      cwd: args.runOptions.cwd,
+      timeoutMs: args.runOptions.timeoutMs ?? 10 * 60_000,
+      label: `opencode:${args.runOptions.phaseName}:${args.runOptions.role}`,
+      env: args.env,
+    });
+
+    const parsed = parseStreamJson(execResult.stdout);
+    const outputText = parsed.finalText ?? parsed.lastText ?? execResult.stdout.trim();
+    const sessionId = parsed.sessionId ?? args.runOptions.sessionId;
+    const combined = [outputText, execResult.stdout, execResult.stderr].filter(Boolean).join("\n");
+    const contextOverflow = CONTEXT_OVERFLOW_PATTERN.test(combined);
+
+    return {
+      execResult,
+      parsed,
+      outputText,
+      sessionId,
+      combined,
+      contextOverflow,
+    };
+  }
+
+  private formatInternalFailure(attempt: RunnerAttempt, retryAttempt?: RunnerAttempt): OttoRunnerResult {
+    const details = [attempt.execResult.stderr.trim(), attempt.outputText].filter(Boolean).join("\n");
+    const retryNote = retryAttempt
+      ? [retryAttempt.execResult.stderr.trim(), retryAttempt.outputText]
+          .filter(Boolean)
+          .join("\n")
+      : "";
+
+    return {
+      success: false,
+      sessionId: attempt.sessionId,
+      outputText: attempt.outputText,
+      error:
+        retryNote.length > 0
+          ? [
+              details.length > 0
+                ? `OpenCode CLI emitted an internal schema/validation failure.\n${details}`
+                : "OpenCode CLI emitted an internal schema/validation failure.",
+              `Retry with isolated OpenCode config also failed.\n${retryNote}`,
+            ].join("\n\n")
+          : details.length > 0
+            ? `OpenCode CLI emitted an internal schema/validation failure.\n${details}`
+            : "OpenCode CLI emitted an internal schema/validation failure.",
+      contextOverflow: attempt.contextOverflow,
+      timedOut: attempt.execResult.timedOut,
+    };
+  }
+
+  private finalizeAttempt(attempt: RunnerAttempt): OttoRunnerResult {
+    if (!attempt.outputText && /spawn\s+opencode\s+ENOENT/i.test(attempt.execResult.stderr)) {
+      return {
+        success: false,
+        timedOut: attempt.execResult.timedOut,
+        error: "OpenCode CLI not found (`opencode` missing in PATH).",
+      };
+    }
+
+    if (attempt.parsed.finalError) {
+      return {
+        success: false,
+        sessionId: attempt.sessionId,
+        outputText: attempt.outputText,
+        error: attempt.parsed.finalError,
+        contextOverflow: attempt.contextOverflow,
+        timedOut: attempt.execResult.timedOut,
+      };
+    }
+
+    if (attempt.execResult.exitCode !== 0) {
+      return {
+        success: false,
+        sessionId: attempt.sessionId,
+        outputText: attempt.outputText,
+        error:
+          attempt.outputText ||
+          attempt.execResult.stderr.trim() ||
+          `OpenCode CLI exited with code ${attempt.execResult.exitCode}.`,
+        contextOverflow: attempt.contextOverflow,
+        timedOut: attempt.execResult.timedOut,
+      };
+    }
+
+    if (!attempt.parsed.sawFinalRecord) {
+      const details = attempt.execResult.stderr.trim() || attempt.outputText;
+      return {
+        success: false,
+        sessionId: attempt.sessionId,
+        outputText: attempt.outputText,
+        error:
+          details.length > 0
+            ? `OpenCode CLI did not emit a final JSON result.\n${details}`
+            : "OpenCode CLI did not emit a final JSON result.",
+        contextOverflow: attempt.contextOverflow,
+        timedOut: attempt.execResult.timedOut,
+      };
+    }
+
+    if (!attempt.outputText) {
+      return {
+        success: false,
+        sessionId: attempt.sessionId,
+        outputText: attempt.outputText,
+        error: "OpenCode CLI did not emit a final result.",
+        contextOverflow: attempt.contextOverflow,
+        timedOut: attempt.execResult.timedOut,
+      };
+    }
+
+    return {
+      success: true,
+      sessionId: attempt.sessionId,
+      outputText: attempt.outputText,
+      contextOverflow: attempt.contextOverflow,
+      timedOut: attempt.execResult.timedOut,
+    };
+  }
+
   async run(options: OttoRunnerRunOptions): Promise<OttoRunnerResult> {
     const cfg = mergeConfig(options.role, this.options);
     const binary = this.options.binary ?? DEFAULT_BINARY;
@@ -316,71 +471,39 @@ class OpencodeCliRunner implements OttoRunner {
       };
     }
 
-    const execResult = await options.exec.run(cmd, {
-      cwd: options.cwd,
-      timeoutMs: options.timeoutMs ?? 10 * 60_000,
-      label: `opencode:${options.phaseName}:${options.role}`,
-      env,
-    });
+    const firstAttempt = await this.runAttempt({ runOptions: options, cmd, env });
 
-    const parsed = parseStreamJson(execResult.stdout);
-    const outputText = parsed.finalText ?? parsed.lastText ?? execResult.stdout.trim();
-    const sessionId = parsed.sessionId ?? options.sessionId;
+    if (INTERNAL_FAILURE_PATTERN.test(firstAttempt.combined)) {
+      const shouldRetryIsolatedConfig =
+        (this.options.isolateConfigRetry ?? true) &&
+        ISOLATED_CONFIG_RECOVERY_PATTERN.test(firstAttempt.combined);
+      if (shouldRetryIsolatedConfig) {
+        let retryAttempt: RunnerAttempt | undefined;
+        const isolatedConfigHome = await mkdtemp(path.join(tmpdir(), "otto-opencode-config-"));
+        try {
+          retryAttempt = await this.runAttempt({
+            runOptions: options,
+            cmd,
+            env: {
+              ...(env ?? {}),
+              XDG_CONFIG_HOME: isolatedConfigHome,
+            },
+          });
+        } finally {
+          await rm(isolatedConfigHome, { recursive: true, force: true });
+        }
 
-    const combined = [outputText, execResult.stdout, execResult.stderr].filter(Boolean).join("\n");
-    const contextOverflow = CONTEXT_OVERFLOW_PATTERN.test(combined);
+        if (!INTERNAL_FAILURE_PATTERN.test(retryAttempt.combined)) {
+          return this.finalizeAttempt(retryAttempt);
+        }
 
-    if (!outputText && /spawn\s+opencode\s+ENOENT/i.test(execResult.stderr)) {
-      return {
-        success: false,
-        timedOut: execResult.timedOut,
-        error: "OpenCode CLI not found (`opencode` missing in PATH).",
-      };
+        return this.formatInternalFailure(firstAttempt, retryAttempt);
+      }
+
+      return this.formatInternalFailure(firstAttempt);
     }
 
-    if (parsed.finalError) {
-      return {
-        success: false,
-        sessionId,
-        outputText,
-        error: parsed.finalError,
-        contextOverflow,
-        timedOut: execResult.timedOut,
-      };
-    }
-
-    if (execResult.exitCode !== 0) {
-      return {
-        success: false,
-        sessionId,
-        outputText,
-        error:
-          outputText ||
-          execResult.stderr.trim() ||
-          `OpenCode CLI exited with code ${execResult.exitCode}.`,
-        contextOverflow,
-        timedOut: execResult.timedOut,
-      };
-    }
-
-    if (!outputText) {
-      return {
-        success: false,
-        sessionId,
-        outputText,
-        error: "OpenCode CLI did not emit a final result.",
-        contextOverflow,
-        timedOut: execResult.timedOut,
-      };
-    }
-
-    return {
-      success: true,
-      sessionId,
-      outputText,
-      contextOverflow,
-      timedOut: execResult.timedOut,
-    };
+    return this.finalizeAttempt(firstAttempt);
   }
 }
 
