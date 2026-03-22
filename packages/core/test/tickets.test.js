@@ -20,6 +20,9 @@ const lead = await jiti(
 const ops = await jiti(
   new URL("../src/tickets/operations.ts", import.meta.url).href,
 );
+const ticketCommands = await jiti(
+  new URL("../src/cli/commands/tickets.ts", import.meta.url).href,
+);
 
 const tempRepo = async () =>
   fs.mkdtemp(path.join(os.tmpdir(), "otto-ticket-test-"));
@@ -39,6 +42,31 @@ test("extracts slug/content tags with whitespace", () =>
     assert.equal(tags.extractSlugTag(output), "Add caching layer");
     assert.equal(tags.extractContentTag(output), "# Title\nBody");
   });
+
+test("extracts slug/content tags case-insensitively", () => {
+  const output = [
+    "<slug>",
+    "  Add caching layer  ",
+    "</slug>",
+    "<content>",
+    "# Title",
+    "Body",
+    "</content>",
+  ].join("\n");
+
+  assert.equal(tags.extractSlugTag(output), "Add caching layer");
+  assert.equal(tags.extractContentTag(output), "# Title\nBody");
+});
+
+test("extracts fallback slug from labeled plain text", () => {
+  const output = "Slug: Add caching layer";
+  assert.equal(tags.extractSlugTag(output), "Add caching layer");
+});
+
+test("extracts fallback slug from single-line plain text", () => {
+  const output = "Add caching layer";
+  assert.equal(tags.extractSlugTag(output), "Add caching layer");
+});
 
 test("validates and normalizes slug", () => {
   assert.equal(slug.countSlugWords("Add caching layer"), 3);
@@ -147,4 +175,126 @@ test("ticket ingest copies source content", async () => {
 
   const written = await fs.readFile(result.filePath, "utf8");
   assert.equal(written, sourceContent);
+});
+
+test("ticket ingest accepts lowercase slug tag", async () => {
+  const repoPath = await tempRepo();
+  const sourcePath = path.join(repoPath, "source.md");
+  const sourceContent = "# External\ncontent";
+  await fs.writeFile(sourcePath, sourceContent, "utf8");
+
+  const output = ["<slug>", "Import external ticket", "</slug>"].join("\n");
+  const date = new Date("2026-02-01T12:00:00Z");
+  const result = await ops.ingestTicketFromLeadOutput({
+    repoPath,
+    sourceFilePath: sourcePath,
+    outputText: output,
+    date,
+  });
+
+  assert.equal(path.basename(result.filePath), "2026-02-01-import-external-ticket.md");
+});
+
+test("ticket ingest accepts plain slug output", async () => {
+  const repoPath = await tempRepo();
+  const sourcePath = path.join(repoPath, "source.md");
+  await fs.writeFile(sourcePath, "# External\ncontent", "utf8");
+
+  const output = "Slug: Import external ticket";
+  const date = new Date("2026-02-01T12:00:00Z");
+  const result = await ops.ingestTicketFromLeadOutput({
+    repoPath,
+    sourceFilePath: sourcePath,
+    outputText: output,
+    date,
+  });
+
+  assert.equal(path.basename(result.filePath), "2026-02-01-import-external-ticket.md");
+});
+
+test("runTicketIngest uses slug-coercion retry on missing slug tag", async () => {
+  const repoPath = await tempRepo();
+  const sourcePath = path.join(repoPath, "source.md");
+  await fs.writeFile(sourcePath, "# External\ncontent", "utf8");
+
+  const prompts = [];
+  const runner = {
+    kind: "stub",
+    id: "stub",
+    run: async ({ prompt }) => {
+      prompts.push(prompt);
+      if (prompts.length === 1) {
+        return {
+          success: true,
+          outputText: "Here is my suggestion:\nImport external ticket\nUse this slug.",
+        };
+      }
+      return { success: true, outputText: "<SLUG>Import external ticket</SLUG>" };
+    },
+  };
+
+  const result = await ticketCommands.runTicketIngest({
+    repoPath,
+    runner,
+    sourceFilePath: sourcePath,
+  });
+
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1] ?? "", /<PREVIOUS_RESPONSE>/);
+  assert.match(prompts[1] ?? "", /Return exactly one tag only/);
+  assert.match(path.basename(result.filePath), /^\d{4}-\d{2}-\d{2}-import-external-ticket\.md$/);
+});
+
+test("runTicketIngest falls back to source filename slug when model omits slug", async () => {
+  const repoPath = await tempRepo();
+  const sourcePath = path.join(repoPath, "2025-12-25-expo-graphql-resolvers.md");
+  await fs.writeFile(sourcePath, "# External\ncontent", "utf8");
+
+  const prompts = [];
+  const runner = {
+    kind: "stub",
+    id: "stub",
+    run: async ({ prompt }) => {
+      prompts.push(prompt);
+      return { success: true, outputText: "I suggest:\nUse a concise title." };
+    },
+  };
+
+  const result = await ticketCommands.runTicketIngest({
+    repoPath,
+    runner,
+    sourceFilePath: sourcePath,
+  });
+
+  assert.equal(prompts.length, 3);
+  assert.match(path.basename(result.filePath), /^\d{4}-\d{2}-\d{2}-expo-graphql-resolvers\.md$/);
+});
+
+test("runTicketIngest falls back to source filename slug on invalid word-count slug", async () => {
+  const repoPath = await tempRepo();
+  const sourcePath = path.join(repoPath, "2025-12-25-expo-graphql-resolvers.md");
+  await fs.writeFile(sourcePath, "# External\ncontent", "utf8");
+
+  const prompts = [];
+  const runner = {
+    kind: "stub",
+    id: "stub",
+    run: async ({ prompt }) => {
+      prompts.push(prompt);
+      return {
+        success: true,
+        outputText:
+          "This is definitely a slug sentence that is way too long for ingest validation",
+      };
+    },
+  };
+
+  const result = await ticketCommands.runTicketIngest({
+    repoPath,
+    runner,
+    sourceFilePath: sourcePath,
+  });
+
+  assert.equal(prompts.length, 3);
+  assert.match(path.basename(result.filePath), /^\d{4}-\d{2}-\d{2}-expo-graphql-resolvers\.md$/);
 });

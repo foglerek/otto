@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 
 import type { OttoRunner } from "@otto/ports";
 
@@ -15,6 +16,7 @@ import {
   buildTicketCreatePrompt,
   buildTicketIngestPrompt,
   buildTicketRetryPrompt,
+  buildTicketSlugCoercePrompt,
 } from "../../tickets/prompts.js";
 
 function isRetryableTicketError(err: unknown): boolean {
@@ -25,6 +27,24 @@ function isRetryableTicketError(err: unknown): boolean {
     message.includes("3-5 words") ||
     message.includes("could not be normalized")
   );
+}
+
+function isSlugFormatError(message: string): boolean {
+  return (
+    message.includes("missing <SLUG>") ||
+    message.includes("3-5 words") ||
+    message.includes("could not be normalized")
+  );
+}
+
+function fallbackSlugFromSourcePath(sourceFilePath: string): string | null {
+  const baseName = path.basename(sourceFilePath, path.extname(sourceFilePath));
+  const withoutDatePrefix = baseName.replace(/^\d{4}-\d{2}-\d{2}-/, "");
+  const words = withoutDatePrefix.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (words.length < 3) {
+    return null;
+  }
+  return words.slice(0, 5).join(" ");
 }
 
 async function runProjectLeadPrompt(args: {
@@ -96,16 +116,10 @@ export async function runTicketIngest(args: {
 }): Promise<{ ticketId: string; filePath: string }> {
   const sourceContent = await fs.readFile(args.sourceFilePath, "utf8");
   const basePrompt = buildTicketIngestPrompt({ sourceContent });
-  const maxAttempts = 2;
+  const maxAttempts = 3;
+  let prompt = basePrompt;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const prompt =
-      attempt === 0
-        ? basePrompt
-        : buildTicketRetryPrompt({
-            basePrompt,
-            errorMessage: "Missing or invalid slug.",
-          });
     const outputText = await runProjectLeadPrompt({
       runner: args.runner,
       repoPath: args.repoPath,
@@ -121,9 +135,33 @@ export async function runTicketIngest(args: {
       });
       return { ticketId: result.ticketId, filePath: result.filePath };
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const shouldCoerceSlug = isSlugFormatError(message);
+
       if (attempt + 1 >= maxAttempts || !isRetryableTicketError(error)) {
+        if (shouldCoerceSlug) {
+          const fallbackSlug = fallbackSlugFromSourcePath(args.sourceFilePath);
+          if (fallbackSlug) {
+            const fallback = await ingestTicketFromLeadOutput({
+              repoPath: args.repoPath,
+              sourceFilePath: args.sourceFilePath,
+              outputText: `<SLUG>${fallbackSlug}</SLUG>`,
+            });
+            return { ticketId: fallback.ticketId, filePath: fallback.filePath };
+          }
+        }
         throw error;
       }
+
+      prompt = shouldCoerceSlug
+        ? buildTicketSlugCoercePrompt({
+            basePrompt,
+            previousOutput: outputText,
+          })
+        : buildTicketRetryPrompt({
+            basePrompt,
+            errorMessage: "Missing or invalid slug.",
+          });
     }
   }
 

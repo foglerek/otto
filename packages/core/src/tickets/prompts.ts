@@ -78,3 +78,24 @@ export function buildTicketRetryPrompt(args: {
     "",
   ].join("\n");
 }
+
+export function buildTicketSlugCoercePrompt(args: {
+  basePrompt: string;
+  previousOutput: string;
+}): string {
+  const snippet = args.previousOutput.trim().slice(0, 2_000);
+  return [
+    args.basePrompt.trim(),
+    "",
+    "<RETRY>",
+    "Previous response did not include a valid <SLUG> tag.",
+    "Return exactly one tag only: <SLUG>...</SLUG> (3-5 words).",
+    "No prose, no markdown fences, no additional tags.",
+    "</RETRY>",
+    "",
+    "<PREVIOUS_RESPONSE>",
+    snippet,
+    "</PREVIOUS_RESPONSE>",
+    "",
+  ].join("\n");
+}
