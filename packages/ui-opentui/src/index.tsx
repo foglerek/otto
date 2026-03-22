@@ -23,6 +23,27 @@ export class PromptUnavailableError extends Error {
   }
 }
 
+export function normalizePromptInput(next: unknown): string | null {
+  if (typeof next === "string") {
+    return next;
+  }
+  if (!next || typeof next !== "object") {
+    return null;
+  }
+
+  const record = next as Record<string, unknown>;
+  if (typeof record.value === "string") {
+    return record.value;
+  }
+  if (typeof record.text === "string") {
+    return record.text;
+  }
+  if (typeof record.input === "string") {
+    return record.input;
+  }
+  return null;
+}
+
 function assertTty(): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new PromptUnavailableError(
@@ -149,42 +170,20 @@ function TextPrompt(props: {
 }) {
   const [value, setValue] = useState(props.defaultValue);
 
-  const toPromptString = (next: unknown): string | null => {
-    if (typeof next === "string") {
-      return next;
-    }
-    if (!next || typeof next !== "object") {
-      return null;
-    }
-
-    const record = next as Record<string, unknown>;
-    if (typeof record.value === "string") {
-      return record.value;
-    }
-    if (typeof record.text === "string") {
-      return record.text;
-    }
-    if (typeof record.input === "string") {
-      return record.input;
-    }
-    return null;
-  };
-
   return (
     <PromptShell message={props.message} onCancel={props.onCancel}>
       <input
         focused
         value={value}
         onChange={(next) => {
-          const nextValue = toPromptString(next);
+          const nextValue = normalizePromptInput(next);
           if (nextValue !== null) {
             setValue(nextValue);
           }
         }}
         onSubmit={(submitted) => {
-          const submittedValue = toPromptString(submitted) ?? value;
-          const trimmed = submittedValue.trim();
-          props.onResolve(trimmed.length > 0 ? trimmed : props.defaultValue);
+          const submittedValue = normalizePromptInput(submitted) ?? value;
+          props.onResolve(submittedValue);
         }}
       />
     </PromptShell>

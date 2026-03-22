@@ -70,13 +70,20 @@ export async function reviewDecisionCards(args: {
 
     if (!existingFeedback && isApproved) continue;
 
-    const feedback = await args.runtime.prompt.text(
-      `${formatDecisionCardLines(decision)}\n\nFeedback on ${decision.id}? (empty to accept)`,
-      { defaultValue: existingFeedback },
-    );
+    const feedbackPrompt = existingFeedback
+      ? `${formatDecisionCardLines(decision)}\n\nFeedback on ${decision.id}? (press Enter to accept as-is, or edit feedback to request more changes)`
+      : `${formatDecisionCardLines(decision)}\n\nFeedback on ${decision.id}? (empty to accept)`;
 
-    if (feedback.trim()) {
-      decision.userFeedback = feedback.trim();
+    const feedback = await args.runtime.prompt.text(feedbackPrompt, {
+      defaultValue: existingFeedback,
+    });
+
+    const normalizedFeedback = feedback.trim();
+    const unchangedFeedback =
+      existingFeedback.length > 0 && normalizedFeedback === existingFeedback;
+
+    if (normalizedFeedback && !unchangedFeedback) {
+      decision.userFeedback = normalizedFeedback;
       delete decision.approvedHash;
       decisionFeedbackSummary.push({
         id: decision.id,
@@ -86,7 +93,10 @@ export async function reviewDecisionCards(args: {
       needsPlanUpdate = true;
       await writeDecisionCards(args.decisionCardsPath, args.decisionCards);
     } else {
-      const cleaned = stripEmptyUserFeedback(decision);
+      const cleaned = {
+        ...stripEmptyUserFeedback(decision),
+      };
+      delete cleaned.userFeedback;
       cleaned.approvedHash = currentHash;
       args.decisionCards.decisions[index] = cleaned;
       await writeDecisionCards(args.decisionCardsPath, args.decisionCards);

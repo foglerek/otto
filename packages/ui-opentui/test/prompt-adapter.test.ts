@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   PromptUnavailableError,
   createOpentuiPromptAdapter,
+  normalizePromptInput,
 } from "../src/index.js";
 
 describe("OpenTUI prompt adapter", () => {
@@ -23,5 +24,13 @@ describe("OpenTUI prompt adapter", () => {
     await expect(adapter.select("select?", { choices: ["a", "b"] })).rejects.toBeInstanceOf(
       PromptUnavailableError,
     );
+  });
+
+  test("normalizePromptInput reads object-shaped input payloads", () => {
+    expect(normalizePromptInput("abc")).toBe("abc");
+    expect(normalizePromptInput({ value: "def" })).toBe("def");
+    expect(normalizePromptInput({ text: "ghi" })).toBe("ghi");
+    expect(normalizePromptInput({ input: "jkl" })).toBe("jkl");
+    expect(normalizePromptInput({})).toBeNull();
   });
 });
