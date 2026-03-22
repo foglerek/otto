@@ -6,14 +6,16 @@ import {
 } from "../decision-cards.js";
 import { reviewDecisionCards } from "../decision-card-review.js";
 import { fileExistsAndHasContent } from "../file-utils.js";
-import { sessionMicroRetry } from "../micro-retry.js";
+import {
+  ensureSentinelWithMicroRetry,
+  sessionMicroRetry,
+} from "../micro-retry.js";
 import { getTechLeadSystemReminder } from "../system-reminders.js";
 import {
   getDecisionCardsPath,
   getPlanFilePath,
   toWorktreePath,
 } from "../paths.js";
-import { hasOkSentinel } from "../sentinels.js";
 import {
   getDecisionCardsMaxIterations,
   maybeAutoRetry,
@@ -100,24 +102,23 @@ async function applyDecisionCardsPlanUpdate(args: {
       continue;
     }
 
-    if (!hasOkSentinel(result.outputText)) {
-      const ok = await sessionMicroRetry({
+    const ok = await ensureSentinelWithMicroRetry({
+      runtime: args.runtime,
+      role: "lead",
+      sessionId: result.sessionId ?? sessionId ?? null,
+      outputText: result.outputText,
+      message: "Reply with <OK> only when the plan update is complete.",
+    });
+    if (!ok) {
+      const retry = await maybeAutoRetry({
         runtime: args.runtime,
-        role: "lead",
-        sessionId: result.sessionId ?? sessionId ?? null,
-        message: "Reply with <OK> only when the plan update is complete.",
+        label: "Decision card feedback",
+        defaultPhase: "decision-cards",
       });
-      if (!ok) {
-        const retry = await maybeAutoRetry({
-          runtime: args.runtime,
-          label: "Decision card feedback",
-          defaultPhase: "decision-cards",
-        });
-        if (!retry) {
-          throw new Error("Decision card feedback missing <OK> sentinel.");
-        }
-        continue;
+      if (!retry) {
+        throw new Error("Decision card feedback missing <OK> sentinel.");
       }
+      continue;
     }
 
     const planOk = await ensurePlanInMainRepo({

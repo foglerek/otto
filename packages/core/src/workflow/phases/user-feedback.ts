@@ -6,8 +6,10 @@ import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { fileExistsAndHasContent } from "../file-utils.js";
 import { getRunDir, toWorktreePath } from "../paths.js";
 import { createTaskQueue } from "../task-queue.js";
-import { sessionMicroRetry } from "../micro-retry.js";
-import { hasOkSentinel } from "../sentinels.js";
+import {
+  ensureSentinelWithMicroRetry,
+  sessionMicroRetry,
+} from "../micro-retry.js";
 import { maybeAutoRetry } from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
 
@@ -79,11 +81,11 @@ async function ensureOkSentinel(args: {
   outputText?: string;
   message: string;
 }): Promise<boolean> {
-  if (hasOkSentinel(args.outputText)) return true;
-  return await sessionMicroRetry({
+  return await ensureSentinelWithMicroRetry({
     runtime: args.runtime,
     role: "lead",
     sessionId: args.sessionIdForRetry,
+    outputText: args.outputText,
     message: args.message,
   });
 }

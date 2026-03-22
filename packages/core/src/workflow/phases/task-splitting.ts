@@ -3,8 +3,10 @@ import fs from "node:fs";
 import type { OttoWorkflowRuntime } from "../runtime.js";
 import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { getRunDir, toWorktreePath } from "../paths.js";
-import { sessionMicroRetry } from "../micro-retry.js";
-import { hasOkSentinel } from "../sentinels.js";
+import {
+  ensureSentinelWithMicroRetry,
+  sessionMicroRetry,
+} from "../micro-retry.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
 
 function directoryHasTaskFiles(directory: string): boolean {
@@ -63,11 +65,11 @@ async function ensureLeadOkSentinel(args: {
   result: LeadRunResult;
   message: string;
 }): Promise<boolean> {
-  if (hasOkSentinel(args.result.outputText)) return true;
-  return await sessionMicroRetry({
+  return await ensureSentinelWithMicroRetry({
     runtime: args.runtime,
     role: "lead",
     sessionId: args.sessionIdForRetry,
+    outputText: args.result.outputText,
     message: args.message,
   });
 }

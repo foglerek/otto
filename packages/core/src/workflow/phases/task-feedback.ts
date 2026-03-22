@@ -6,8 +6,10 @@ import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { fileExistsAndHasContent } from "../file-utils.js";
 import { getPlanFilePath, getRunDir, toWorktreePath } from "../paths.js";
 import { createTaskQueue } from "../task-queue.js";
-import { sessionMicroRetry } from "../micro-retry.js";
-import { hasOkSentinel } from "../sentinels.js";
+import {
+  ensureSentinelWithMicroRetry,
+  sessionMicroRetry,
+} from "../micro-retry.js";
 import { maybeAutoRetry } from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
 
@@ -53,25 +55,24 @@ async function applyTaskFeedbackUpdate(args: {
       continue;
     }
 
-    if (!hasOkSentinel(result.outputText)) {
-      const ok = await sessionMicroRetry({
+    const ok = await ensureSentinelWithMicroRetry({
+      runtime: args.runtime,
+      role: "lead",
+      sessionId: result.sessionId ?? sessionId ?? null,
+      outputText: result.outputText,
+      message:
+        "Reply with <OK> only when the task feedback updates are complete.",
+    });
+    if (!ok) {
+      const retry = await maybeAutoRetry({
         runtime: args.runtime,
-        role: "lead",
-        sessionId: result.sessionId ?? sessionId ?? null,
-        message:
-          "Reply with <OK> only when the task feedback updates are complete.",
+        label: "Task feedback",
+        defaultPhase: "task-feedback",
       });
-      if (!ok) {
-        const retry = await maybeAutoRetry({
-          runtime: args.runtime,
-          label: "Task feedback",
-          defaultPhase: "task-feedback",
-        });
-        if (!retry) {
-          throw new Error("Task feedback missing <OK> sentinel.");
-        }
-        continue;
+      if (!retry) {
+        throw new Error("Task feedback missing <OK> sentinel.");
       }
+      continue;
     }
 
     const artifactsOk = await ensureTaskFeedbackArtifacts({

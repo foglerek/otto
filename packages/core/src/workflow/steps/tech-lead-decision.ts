@@ -10,6 +10,10 @@ import {
 } from "../task-metadata.js";
 import { outcomeFilePath, remediationTaskFilePath } from "../task-artifacts.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
+import {
+  matchOutputSentinel,
+  type TaggedSentinelSpec,
+} from "../sentinels.js";
 
 export type DecisionResult = {
   acceptanceDecision: "acceptance" | "remediation" | "failed";
@@ -34,21 +38,21 @@ type DecisionContext = {
   allowed: Array<DecisionResult["acceptanceDecision"]>;
 };
 
-function hasDecisionTag(
+function parseDecisionTag(
   text: string,
   allowed: Array<DecisionResult["acceptanceDecision"]>,
 ): DecisionResult["acceptanceDecision"] | null {
-  const re = new RegExp(
-    `<DECISION>\\s*(${allowed.join("|")})\\s*<\\/DECISION>`,
-    "i",
-  );
-  const match = text.match(re);
-  if (!match) return null;
-  const value = match[1]?.toLowerCase();
-  if (value === "acceptance" || value === "remediation" || value === "failed") {
-    return value;
-  }
-  return null;
+  const sentinelSpec: TaggedSentinelSpec<DecisionResult["acceptanceDecision"]> =
+    {
+      type: "tag",
+      tag: "DECISION",
+      allowedValues: allowed,
+      caseInsensitive: true,
+    };
+  const match = matchOutputSentinel(text, sentinelSpec);
+  return match.matched
+    ? (match.value as DecisionResult["acceptanceDecision"])
+    : null;
 }
 
 function formatSummaryBlock(tag: string, content: string | undefined): string {
@@ -272,18 +276,23 @@ export async function executeTechLeadDecision(args: {
     defaultPhase: "execution",
   });
 
-  const decision = hasDecisionTag(result.outputText ?? "", ctx.allowed);
+  const decisionSentinelSpec: TaggedSentinelSpec<
+    DecisionResult["acceptanceDecision"]
+  > = {
+    type: "tag",
+    tag: "DECISION",
+    allowedValues: ctx.allowed,
+    caseInsensitive: true,
+  };
+
+  const decision = parseDecisionTag(result.outputText ?? "", ctx.allowed);
   if (!decision) {
-    const replyWith = ctx.allowed
-      .map((d) => `<DECISION>${d}</DECISION>`)
-      .join(" OR ");
     await sessionMicroRetry({
       runtime: args.runtime,
       role: "lead",
       sessionId: args.runtime.state.workflow?.techLeadSessionId ?? null,
       message: "Provide your decision tag.",
-      replyWith,
-      requiredPattern: /<DECISION>[\s\S]*<\/DECISION>/i,
+      sentinelSpec: decisionSentinelSpec,
     });
     return null;
   }

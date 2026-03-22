@@ -2,8 +2,10 @@ import type { OttoWorkflowRuntime } from "../runtime.js";
 import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { fileExistsAndHasContent } from "../file-utils.js";
 import { getPlanFilePath, toWorktreePath } from "../paths.js";
-import { sessionMicroRetry } from "../micro-retry.js";
-import { hasOkSentinel } from "../sentinels.js";
+import {
+  ensureSentinelWithMicroRetry,
+  sessionMicroRetry,
+} from "../micro-retry.js";
 import { maybeAutoRetry } from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
 
@@ -59,24 +61,23 @@ async function applyPlanFeedbackUpdate(args: {
       continue;
     }
 
-    if (!hasOkSentinel(result.outputText)) {
-      const ok = await sessionMicroRetry({
+    const ok = await ensureSentinelWithMicroRetry({
+      runtime: args.runtime,
+      role: "lead",
+      sessionId: result.sessionId ?? sessionId ?? null,
+      outputText: result.outputText,
+      message: "Reply with <OK> only when the plan update is complete.",
+    });
+    if (!ok) {
+      const retry = await maybeAutoRetry({
         runtime: args.runtime,
-        role: "lead",
-        sessionId: result.sessionId ?? sessionId ?? null,
-        message: "Reply with <OK> only when the plan update is complete.",
+        label: "Plan feedback",
+        defaultPhase: "plan-feedback",
       });
-      if (!ok) {
-        const retry = await maybeAutoRetry({
-          runtime: args.runtime,
-          label: "Plan feedback",
-          defaultPhase: "plan-feedback",
-        });
-        if (!retry) {
-          throw new Error("Plan feedback missing <OK> sentinel.");
-        }
-        continue;
+      if (!retry) {
+        throw new Error("Plan feedback missing <OK> sentinel.");
       }
+      continue;
     }
 
     const planOk = await ensurePlanInMainRepo({

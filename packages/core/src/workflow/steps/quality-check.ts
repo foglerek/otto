@@ -2,8 +2,10 @@ import fs from "node:fs/promises";
 
 import type { OttoWorkflowRuntime } from "../runtime.js";
 import { getTaskAgentSystemReminder } from "../system-reminders.js";
-import { sessionMicroRetry } from "../micro-retry.js";
-import { hasOkSentinel } from "../sentinels.js";
+import {
+  ensureSentinelWithMicroRetry,
+  sessionMicroRetry,
+} from "../micro-retry.js";
 import { getBaseTaskInfo } from "../task-metadata.js";
 import { getQualityFixMaxAttempts } from "../retry-policy.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
@@ -88,16 +90,15 @@ async function runQualityFixAttempt(args: {
   }
 
   const nextSessionId = fixResult.sessionId ?? args.sessionId;
-  if (!hasOkSentinel(fixResult.outputText)) {
-    const ok = await sessionMicroRetry({
-      runtime: args.runtime,
-      role: "task",
-      sessionId: nextSessionId,
-      message: "Reply <OK> only when the quality fixes are complete.",
-    });
-    if (!ok) {
-      return { kind: "failed", sessionId: nextSessionId };
-    }
+  const ok = await ensureSentinelWithMicroRetry({
+    runtime: args.runtime,
+    role: "task",
+    sessionId: nextSessionId,
+    outputText: fixResult.outputText,
+    message: "Reply <OK> only when the quality fixes are complete.",
+  });
+  if (!ok) {
+    return { kind: "failed", sessionId: nextSessionId };
   }
 
   await dispatchWorkflowAction(args.runtime.stateStore, {

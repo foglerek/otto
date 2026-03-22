@@ -6,8 +6,10 @@ import { getTechLeadSystemReminder } from "../system-reminders.js";
 import { fileExistsAndHasContent } from "../file-utils.js";
 import { getPlanFilePath, getRunDir, toWorktreePath } from "../paths.js";
 import { sanitizeAbsolutePathsInMarkdown } from "../sanitize-markdown.js";
-import { sessionMicroRetry } from "../micro-retry.js";
-import { hasOkSentinel } from "../sentinels.js";
+import {
+  ensureSentinelWithMicroRetry,
+  sessionMicroRetry,
+} from "../micro-retry.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
 
 async function git(
@@ -108,16 +110,15 @@ export async function runFinalizePhase(args: {
     throw new Error(result.error ?? "Finalize failed.");
   }
 
-  if (!hasOkSentinel(result.outputText)) {
-    const ok = await sessionMicroRetry({
-      runtime: args.runtime,
-      role: "lead",
-      sessionId: result.sessionId ?? sessionId ?? null,
-      message: "Reply with <OK> only when finalization is complete.",
-    });
-    if (!ok) {
-      throw new Error("Finalize missing <OK> sentinel.");
-    }
+  const ok = await ensureSentinelWithMicroRetry({
+    runtime: args.runtime,
+    role: "lead",
+    sessionId: result.sessionId ?? sessionId ?? null,
+    outputText: result.outputText,
+    message: "Reply with <OK> only when finalization is complete.",
+  });
+  if (!ok) {
+    throw new Error("Finalize missing <OK> sentinel.");
   }
 
   await dispatchWorkflowAction(args.runtime.stateStore, {

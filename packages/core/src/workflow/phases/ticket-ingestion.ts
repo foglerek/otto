@@ -9,9 +9,11 @@ import {
   getRunDir,
   getWorktreePlanFilePath,
 } from "../paths.js";
-import { sessionMicroRetry, techLeadMicroRetry } from "../micro-retry.js";
+import {
+  ensureSentinelWithMicroRetry,
+  techLeadMicroRetry,
+} from "../micro-retry.js";
 import { generateDecisionCards } from "../decision-cards.js";
-import { hasOkSentinel } from "../sentinels.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
 
 function buildTicketIngestionPrompt(args: {
@@ -97,21 +99,19 @@ export async function runTicketIngestionPhase(args: {
     throw new Error(result.error ?? "Ticket ingestion failed.");
   }
 
-  if (!hasOkSentinel(result.outputText)) {
-    const ok = await sessionMicroRetry({
-      runtime: args.runtime,
-      role: "lead",
-      sessionId: result.sessionId ?? sessionId ?? null,
-      message: "Reply with <OK> only when ticket ingestion is complete.",
-    });
-    if (!ok) {
-      throw new Error("Ticket ingestion missing <OK> sentinel.");
-    }
-  }
+  const hasSentinel = await ensureSentinelWithMicroRetry({
+    runtime: args.runtime,
+    role: "lead",
+    sessionId: result.sessionId ?? sessionId ?? null,
+    outputText: result.outputText,
+    message: "Reply with <OK> only when ticket ingestion is complete.",
+  });
 
+  const persistedLeadSessionId =
+    result.sessionId ?? args.runtime.state.workflow?.techLeadSessionId ?? null;
   await dispatchWorkflowAction(args.runtime.stateStore, {
     type: "set-tech-lead-session",
-    sessionId: result.sessionId ?? null,
+    sessionId: persistedLeadSessionId,
     defaultPhase: "ticket-created",
   });
 
@@ -130,6 +130,12 @@ export async function runTicketIngestionPhase(args: {
 
   if (!fileExistsAndHasContent(planFilePath)) {
     throw new Error(`Plan file missing or empty: ${planFilePath}`);
+  }
+
+  if (!hasSentinel) {
+    args.runtime.reminders.techLead.push(
+      "Your previous response missed the required <OK> sentinel. End planning responses with <OK> after artifacts are complete.",
+    );
   }
 
   await generateDecisionCards({

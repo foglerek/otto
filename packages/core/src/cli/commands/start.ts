@@ -14,6 +14,126 @@ import { pathExists } from "../utils.js";
 import { acquireRunLock, parseTicketMetaFromId, releaseRunLock, writeStateFile } from "./common.js";
 import { getStateFilePathForRunId } from "../../runs/paths.js";
 
+const WORKTREE_CREATE_BRANCH_ATTEMPTS = 6;
+
+export function isRecoverableWorktreeCreateError(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  const normalized = text.toLowerCase();
+  return (
+    normalized.includes("already exists") ||
+    normalized.includes("already checked out") ||
+    normalized.includes("is a missing but already registered worktree")
+  );
+}
+
+export function buildBranchCandidate(baseBranchName: string, attempt: number): string {
+  if (attempt <= 0) return baseBranchName;
+  return `${baseBranchName}-${attempt + 1}`;
+}
+
+export async function createWorktreeWithBranchFallback(args: {
+  config: Awaited<ReturnType<typeof loadConfigFromCwd>>["config"];
+  mainRepoPath: string;
+  baseBranch: string;
+  initialBranchName: string;
+}): Promise<{ worktreePath: string; branchName: string }> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < WORKTREE_CREATE_BRANCH_ATTEMPTS; attempt += 1) {
+    const branchName = buildBranchCandidate(args.initialBranchName, attempt);
+    try {
+      const created = await args.config.worktree.adapter.createWorktree({
+        mainRepoPath: args.mainRepoPath,
+        baseBranch: args.baseBranch,
+        branchName,
+        worktreesDir: args.config.worktree.worktreesDir,
+      });
+      return { worktreePath: created.worktreePath, branchName };
+    } catch (error) {
+      lastError = error;
+      if (!isRecoverableWorktreeCreateError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? new Error(
+        `Unable to allocate a unique worktree branch after ${WORKTREE_CREATE_BRANCH_ATTEMPTS} attempts: ${lastError.message}`,
+      )
+    : new Error(
+        `Unable to allocate a unique worktree branch after ${WORKTREE_CREATE_BRANCH_ATTEMPTS} attempts.`,
+      );
+}
+
+async function cleanupFailedWorktreeStart(args: {
+  config: Awaited<ReturnType<typeof loadConfigFromCwd>>["config"];
+  mainRepoPath: string;
+  worktreePath: string;
+  branchName: string;
+  baseBranch: string;
+  exec: ReturnType<typeof createNodeExec>;
+  envVars: Record<string, string>;
+  testEnvVars: Record<string, string>;
+}): Promise<void> {
+  const logger = {
+    info: (msg: string) => {
+      process.stdout.write(`[info] ${msg}\n`);
+    },
+    warn: (msg: string) => {
+      process.stderr.write(`[warn] ${msg}\n`);
+    },
+    error: (msg: string) => {
+      process.stderr.write(`[error] ${msg}\n`);
+    },
+  };
+
+  if (typeof args.config.worktree.beforeCleanup === "function") {
+    try {
+      await args.config.worktree.beforeCleanup({
+        worktree: {
+          mainRepoPath: args.mainRepoPath,
+          worktreePath: args.worktreePath,
+          branchName: args.branchName,
+          baseBranch: args.baseBranch,
+        },
+        exec: args.exec,
+        env: {
+          set: (key, value) => {
+            args.envVars[key] = value;
+          },
+        },
+        testEnv: {
+          set: (key, value) => {
+            args.testEnvVars[key] = value;
+          },
+        },
+        services: {},
+        logger,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(
+        `[warn] Cleanup hook failed after setup error: ${message}\n`,
+      );
+    }
+  }
+
+  try {
+    await args.config.worktree.adapter.removeWorktree({
+      mainRepoPath: args.mainRepoPath,
+      worktreePath: args.worktreePath,
+      branchName: args.branchName,
+      deleteBranch: true,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `[warn] Failed to remove worktree after setup error: ${message}\n`,
+    );
+  }
+}
+
 export async function handleStartCommand(args: string[]): Promise<void> {
   const ticketId = (args[0] ?? "").trim();
   if (!ticketId || args.length !== 1) {
@@ -55,51 +175,64 @@ export async function handleStartCommand(args: string[]): Promise<void> {
     ticket: { date, slug, filePath: ticketFilePath },
   });
 
-  const baseBranch = config.worktree.baseBranch;
-  const worktreePath = (
-    await config.worktree.adapter.createWorktree({
-      mainRepoPath,
-      baseBranch,
-      branchName,
-      worktreesDir: config.worktree.worktreesDir,
-    })
-  ).worktreePath;
-
   const exec = createNodeExec();
   const envVars: Record<string, string> = {};
   const testEnvVars: Record<string, string> = {};
+  const baseBranch = config.worktree.baseBranch;
+  const created = await createWorktreeWithBranchFallback({
+    config,
+    mainRepoPath,
+    baseBranch,
+    initialBranchName: branchName,
+  });
+  const resolvedBranchName = created.branchName;
+  const worktreePath = created.worktreePath;
 
-  await config.worktree.afterCreate({
-    worktree: {
+  try {
+    await config.worktree.afterCreate({
+      worktree: {
+        mainRepoPath,
+        worktreePath,
+        branchName: resolvedBranchName,
+        baseBranch,
+      },
+      exec,
+      env: {
+        set: (key, value) => {
+          envVars[key] = value;
+        },
+      },
+      testEnv: {
+        set: (key, value) => {
+          testEnvVars[key] = value;
+        },
+      },
+      services: {},
+      logger: {
+        info: (msg) => {
+          process.stdout.write(`[info] ${msg}\n`);
+        },
+        warn: (msg) => {
+          process.stderr.write(`[warn] ${msg}\n`);
+        },
+        error: (msg) => {
+          process.stderr.write(`[error] ${msg}\n`);
+        },
+      },
+    });
+  } catch (error) {
+    await cleanupFailedWorktreeStart({
+      config,
       mainRepoPath,
       worktreePath,
-      branchName,
+      branchName: resolvedBranchName,
       baseBranch,
-    },
-    exec,
-    env: {
-      set: (key, value) => {
-        envVars[key] = value;
-      },
-    },
-    testEnv: {
-      set: (key, value) => {
-        testEnvVars[key] = value;
-      },
-    },
-    services: {},
-    logger: {
-      info: (msg) => {
-        process.stdout.write(`[info] ${msg}\n`);
-      },
-      warn: (msg) => {
-        process.stderr.write(`[warn] ${msg}\n`);
-      },
-      error: (msg) => {
-        process.stderr.write(`[error] ${msg}\n`);
-      },
-    },
-  });
+      exec,
+      envVars,
+      testEnvVars,
+    });
+    throw error;
+  }
 
   const state = buildInitialRunState({
     mainRepoPath,
@@ -108,7 +241,7 @@ export async function handleStartCommand(args: string[]): Promise<void> {
     ticketId,
     ticketFilePath,
     worktreePath,
-    branchName,
+    branchName: resolvedBranchName,
     baseBranch,
     env: envVars,
     testEnv: testEnvVars,

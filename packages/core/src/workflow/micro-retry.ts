@@ -7,7 +7,14 @@ import {
 
 import type { OttoRole } from "@otto/ports";
 
-import { OK_SENTINEL_PATTERN } from "./sentinels.js";
+import {
+  OK_SENTINEL_PATTERN,
+  OK_SENTINEL_SPEC,
+  buildSentinelPattern,
+  describeSentinelExpectation,
+  matchOutputSentinel,
+  type OutputSentinelSpec,
+} from "./sentinels.js";
 import { dispatchWorkflowAction } from "./state-reducer.js";
 
 function getReminderForRole(
@@ -47,11 +54,18 @@ export async function sessionMicroRetry(args: {
   timeoutMs?: number;
   replyWith?: string;
   requiredPattern?: RegExp;
+  sentinelSpec?: OutputSentinelSpec;
 }): Promise<boolean> {
   if (!args.sessionId) return false;
 
-  const replyWith = args.replyWith ?? "<OK>";
-  const requiredPattern = args.requiredPattern ?? OK_SENTINEL_PATTERN;
+  const sentinelSpec = args.sentinelSpec ?? OK_SENTINEL_SPEC;
+  const replyWith =
+    args.replyWith ?? describeSentinelExpectation(sentinelSpec);
+  const requiredPattern =
+    args.requiredPattern ??
+    (args.sentinelSpec
+      ? buildSentinelPattern(args.sentinelSpec)
+      : OK_SENTINEL_PATTERN);
 
   const prompt = [
     getReminderForRole(args.runtime, args.role),
@@ -77,7 +91,10 @@ export async function sessionMicroRetry(args: {
 
   if (result.success) {
     const output = result.outputText ?? "";
-    if (!requiredPattern.test(output)) {
+    const sentinelMatch = args.sentinelSpec
+      ? matchOutputSentinel(output, args.sentinelSpec).matched
+      : requiredPattern.test(output);
+    if (!sentinelMatch) {
       return false;
     }
     if (args.role === "lead") {
@@ -104,4 +121,28 @@ export async function techLeadMicroRetry(args: {
   });
 
   if (!ok) throw new Error("Tech lead micro-retry failed.");
+}
+
+export async function ensureSentinelWithMicroRetry(args: {
+  runtime: OttoWorkflowRuntime;
+  role: OttoRole;
+  sessionId: string | null;
+  outputText?: string;
+  message: string;
+  timeoutMs?: number;
+  sentinelSpec?: OutputSentinelSpec;
+}): Promise<boolean> {
+  const sentinelSpec = args.sentinelSpec ?? OK_SENTINEL_SPEC;
+  if (matchOutputSentinel(args.outputText, sentinelSpec).matched) {
+    return true;
+  }
+
+  return await sessionMicroRetry({
+    runtime: args.runtime,
+    role: args.role,
+    sessionId: args.sessionId,
+    message: args.message,
+    timeoutMs: args.timeoutMs,
+    sentinelSpec,
+  });
 }

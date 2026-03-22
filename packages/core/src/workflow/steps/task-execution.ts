@@ -4,7 +4,10 @@ import type { OttoWorkflowRuntime } from "../runtime.js";
 import { getTaskAgentSystemReminder } from "../system-reminders.js";
 import { fileExistsAndHasContent } from "../file-utils.js";
 import { toWorktreePath } from "../paths.js";
-import { sessionMicroRetry } from "../micro-retry.js";
+import {
+  ensureSentinelWithMicroRetry,
+  sessionMicroRetry,
+} from "../micro-retry.js";
 import { reportFilePath } from "../task-artifacts.js";
 import { getBaseTaskInfo } from "../task-metadata.js";
 import { dispatchWorkflowAction } from "../state-reducer.js";
@@ -65,12 +68,11 @@ async function ensureOkOrMicroRetry(args: {
   sessionId: string | null;
   outputText: string;
 }): Promise<boolean> {
-  if (args.outputText.trim().endsWith("<OK>")) return true;
-
-  return await sessionMicroRetry({
+  return await ensureSentinelWithMicroRetry({
     runtime: args.runtime,
     role: args.role,
     sessionId: args.sessionId,
+    outputText: args.outputText,
     message: "If you are done, reply with <OK>.",
   });
 }
