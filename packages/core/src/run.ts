@@ -13,7 +13,7 @@ import { resolveWorkflowRunners } from "./workflow/runtime.js";
 import { runWorkflowOrchestrator } from "./workflow/orchestrator.js";
 import { getPlanFilePath } from "./workflow/paths.js";
 import { createRunEventLogger, emitRunEvent } from "./workflow/events.js";
-import type { OttoExecEvent, OttoRunEvent } from "./workflow/events.js";
+import type { OttoExecEvent, OttoExecStartEvent, OttoRunEvent } from "./workflow/events.js";
 
 function toPreview(text: string, maxChars = 2000): string {
   if (text.length <= maxChars) {
@@ -34,6 +34,7 @@ export async function runOttoRun(args: {
   config: OttoConfig;
   prompt: OttoPromptAdapter;
   onRunEvent?: (event: OttoRunEvent) => void | Promise<void>;
+  onExecStart?: (event: OttoExecStartEvent) => void | Promise<void>;
   onExecEvent?: (event: OttoExecEvent) => void | Promise<void>;
 }): Promise<{ planFilePath: string; stoppedAtPhase: string }> {
   const registry = createProcessRegistry();
@@ -58,6 +59,16 @@ export async function runOttoRun(args: {
   };
   const exec = createNodeExec({
     registry,
+    onStart: async (event) => {
+      if (!args.onExecStart) return;
+      await args.onExecStart({
+        at: new Date().toISOString(),
+        runId: args.state.runId,
+        label: event.label,
+        cmd: event.cmd,
+        cwd: event.cwd,
+      });
+    },
     onResult: async (event) => {
       await events.appendExec({
         at: new Date().toISOString(),

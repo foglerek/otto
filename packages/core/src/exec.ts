@@ -6,6 +6,11 @@ import type { OttoProcessRegistry } from "./process-registry.js";
 
 export function createNodeExec(args?: {
   registry?: OttoProcessRegistry;
+  onStart?: (event: {
+    label: string;
+    cmd: string[];
+    cwd: string;
+  }) => void | Promise<void>;
   onResult?: (event: {
     label: string;
     cmd: string[];
@@ -34,6 +39,12 @@ export function createNodeExec(args?: {
           cmd,
           cwd: options.cwd,
           detached,
+        });
+
+        void args?.onStart?.({
+          label: options.label ?? cmd.join(" "),
+          cmd,
+          cwd: options.cwd,
         });
 
         let stdout = "";

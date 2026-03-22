@@ -57,6 +57,37 @@ test("run progress reporter prints phase and run failures", () => {
   assert.match(stderrChunks.join(""), /\[run failed\] boom/);
 });
 
+test("run progress reporter prints exec start only when enabled", () => {
+  const stdoutChunks = [];
+  const stdoutWrite = process.stdout.write;
+  const original = process.env.OTTO_PROGRESS_EXEC_START;
+
+  process.stdout.write = ((chunk) => {
+    stdoutChunks.push(String(chunk));
+    return true;
+  });
+  process.env.OTTO_PROGRESS_EXEC_START = "1";
+
+  try {
+    progress.reportExecStartToTerminal({
+      at: new Date().toISOString(),
+      runId: "run-1",
+      label: "opencode:ticket-ingestion:lead",
+      cmd: ["opencode", "run"],
+      cwd: "/tmp/repo",
+    });
+  } finally {
+    process.stdout.write = stdoutWrite;
+    if (original === undefined) {
+      delete process.env.OTTO_PROGRESS_EXEC_START;
+    } else {
+      process.env.OTTO_PROGRESS_EXEC_START = original;
+    }
+  }
+
+  assert.match(stdoutChunks.join(""), /\[exec\] opencode:ticket-ingestion:lead \(started\)/);
+});
+
 test("run progress reporter is silent in json mode", () => {
   const stdoutChunks = [];
   const stderrChunks = [];
@@ -106,4 +137,30 @@ test("run progress reporter is silent in json mode", () => {
 
   assert.equal(stdoutChunks.join(""), "");
   assert.equal(stderrChunks.join(""), "");
+});
+
+test("run progress reporter truncates very large errors", () => {
+  const stderrChunks = [];
+  const stderrWrite = process.stderr.write;
+
+  process.stderr.write = ((chunk) => {
+    stderrChunks.push(String(chunk));
+    return true;
+  });
+
+  try {
+    progress.reportRunEventToTerminal({
+      at: new Date().toISOString(),
+      runId: "run-1",
+      type: "run_failed",
+      data: { error: "x".repeat(2000) },
+    });
+  } finally {
+    process.stderr.write = stderrWrite;
+  }
+
+  const stderrText = stderrChunks.join("");
+  assert.match(stderrText, /\[run failed\]/);
+  assert.match(stderrText, /\[truncated /);
+  assert.equal(stderrText.length < 1100, true);
 });

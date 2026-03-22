@@ -23,6 +23,14 @@ export interface OttoExecEvent {
   stderrPreview?: string;
 }
 
+export interface OttoExecStartEvent {
+  at: string;
+  runId: string;
+  label: string;
+  cmd: string[];
+  cwd: string;
+}
+
 export interface OttoRunEventLogger {
   append(event: OttoRunEvent): Promise<void>;
   appendExec(event: OttoExecEvent): Promise<void>;

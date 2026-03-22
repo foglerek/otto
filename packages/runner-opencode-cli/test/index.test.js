@@ -316,3 +316,95 @@ test("opencode runner requires final JSON result record", async () => {
   assert.equal(out.success, false);
   assert.match(out.error ?? "", /did not emit a final json result/i);
 });
+
+test("opencode runner accepts streaming text + step_finish output", async () => {
+  const runner = mod.createOpencodeCliRunner();
+  const calls = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout:
+        line({
+          type: "step_start",
+          sessionID: "ses_abc123",
+          part: { type: "step-start", sessionID: "ses_abc123" },
+        }) +
+        line({
+          type: "text",
+          sessionID: "ses_abc123",
+          part: { type: "text", sessionID: "ses_abc123", text: "<OK>" },
+        }) +
+        line({
+          type: "step_finish",
+          sessionID: "ses_abc123",
+          part: { type: "step-finish", sessionID: "ses_abc123", reason: "stop" },
+        }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  const out = await runner.run({
+    role: "lead",
+    phaseName: "ticket-ingestion",
+    prompt: "plan",
+    cwd: process.cwd(),
+    exec,
+  });
+
+  assert.equal(out.success, true);
+  assert.equal(out.sessionId, "ses_abc123");
+  assert.equal(out.outputText, "<OK>");
+});
+
+test("opencode runner ignores schema words inside json text stream", async () => {
+  const runner = mod.createOpencodeCliRunner();
+  const calls = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout:
+        line({
+          type: "step_start",
+          sessionID: "ses_json_stream",
+          part: { type: "step-start", sessionID: "ses_json_stream" },
+        }) +
+        line({
+          type: "text",
+          sessionID: "ses_json_stream",
+          part: {
+            type: "text",
+            sessionID: "ses_json_stream",
+            text: "OpenCode CLI emitted an internal schema/validation failure.",
+          },
+        }) +
+        line({
+          type: "text",
+          sessionID: "ses_json_stream",
+          part: { type: "text", sessionID: "ses_json_stream", text: "<OK>" },
+        }) +
+        line({
+          type: "step_finish",
+          sessionID: "ses_json_stream",
+          part: { type: "step-finish", sessionID: "ses_json_stream", reason: "stop" },
+        }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  const out = await runner.run({
+    role: "lead",
+    phaseName: "ticket-ingestion",
+    prompt: "plan",
+    cwd: process.cwd(),
+    exec,
+  });
+
+  assert.equal(out.success, true);
+  assert.equal(out.outputText, "OpenCode CLI emitted an internal schema/validation failure.<OK>");
+  assert.equal(out.sessionId, "ses_json_stream");
+  assert.equal(calls.length, 1);
+});

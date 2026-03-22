@@ -29,6 +29,191 @@ export type DecisionCardsDocument = {
   decisions: DecisionCard[];
 };
 
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => toNonEmptyString(item))
+      .filter((item): item is string => Boolean(item));
+    if (parts.length > 0) {
+      return parts.join("; ");
+    }
+    return null;
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return (
+      toNonEmptyString(record.text) ??
+      toNonEmptyString(record.content) ??
+      toNonEmptyString(record.value) ??
+      null
+    );
+  }
+
+  return null;
+}
+
+function pickFirstString(
+  source: Record<string, unknown>,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
+    const direct = toNonEmptyString(source[key]);
+    if (direct) {
+      return direct;
+    }
+  }
+  return null;
+}
+
+function extractDecisionCard(
+  value: unknown,
+  index: number,
+): DecisionCard | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+
+  const id = pickFirstString(source, ["id"]) ?? `D${index + 1}`;
+  const proposedChange = pickFirstString(source, [
+    "proposedChange",
+    "proposed_change",
+    "title",
+    "decision",
+    "change",
+  ]);
+  const why = pickFirstString(source, ["why", "rationale", "reason", "decision"]);
+  const alternatives = pickFirstString(source, [
+    "alternatives",
+    "tradeoffs",
+    "options",
+    "consideredAlternatives",
+    "considerations",
+    "notes",
+  ]);
+  const refs = pickFirstString(source, ["refs", "references", "reference"]);
+  const assumptions = pickFirstString(source, [
+    "assumptions",
+    "assumptionsAndConstraints",
+    "constraints",
+    "risks",
+    "prerequisites",
+    "assumptionNotes",
+    "dependencies",
+    "refs",
+    "references",
+  ]);
+  const futureState = pickFirstString(source, [
+    "futureState",
+    "future_state",
+    "expectedOutcome",
+    "impact",
+    "default",
+    "suggested_default",
+    "outcome",
+    "result",
+  ]);
+
+  if (!proposedChange || !why) {
+    return null;
+  }
+
+  return {
+    id,
+    proposedChange,
+    why,
+    alternatives:
+      alternatives ?? "No explicit alternatives were provided in model output.",
+    assumptions:
+      assumptions ??
+      (refs
+        ? `References/dependencies: ${refs}`
+        : "No explicit assumptions were provided in model output."),
+    futureState:
+      futureState ?? "Future-state details were not explicitly provided in model output.",
+  };
+}
+
+function extractOpenQuestion(
+  value: unknown,
+  index: number,
+): OpenQuestionCard | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const question = pickFirstString(source, ["question", "text", "prompt"]);
+  if (!question) {
+    return null;
+  }
+  const id = pickFirstString(source, ["id"]) ?? `Q${index + 1}`;
+  const userAnswer = pickFirstString(source, ["userAnswer", "answer"]) ?? undefined;
+  return userAnswer ? { id, question, userAnswer } : { id, question };
+}
+
+export function coerceDecisionCardsDocument(doc: unknown): unknown {
+  if (!doc || typeof doc !== "object") {
+    return doc;
+  }
+
+  const source = doc as Record<string, unknown>;
+  const nestedCandidate = ["cards", "decisionCards", "result", "output", "data"]
+    .map((key) => source[key])
+    .find(
+      (value) =>
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        (Array.isArray((value as Record<string, unknown>).decisions) ||
+          Array.isArray((value as Record<string, unknown>).questions) ||
+          Array.isArray((value as Record<string, unknown>).openQuestions)),
+    );
+  const candidate = (nestedCandidate as Record<string, unknown> | undefined) ?? source;
+
+  const schemaVersionRaw = candidate.schemaVersion;
+  const schemaVersion =
+    schemaVersionRaw === 1 || schemaVersionRaw === "1" ? 1 : undefined;
+
+  const openQuestionRaw =
+    Array.isArray(candidate.openQuestions)
+      ? candidate.openQuestions
+      : Array.isArray(candidate.questions)
+        ? candidate.questions
+        : [];
+  const decisionRaw = Array.isArray(candidate.decisions) ? candidate.decisions : [];
+
+  if (
+    !Array.isArray(candidate.decisions) &&
+    !Array.isArray(candidate.questions) &&
+    !Array.isArray(candidate.openQuestions)
+  ) {
+    return doc;
+  }
+
+  const openQuestions = openQuestionRaw
+    .map((item, index) => extractOpenQuestion(item, index))
+    .filter((item): item is OpenQuestionCard => item !== null);
+  const decisions = decisionRaw
+    .map((item, index) => extractDecisionCard(item, index))
+    .filter((item): item is DecisionCard => item !== null);
+
+  return {
+    schemaVersion: schemaVersion ?? 1,
+    openQuestions,
+    decisions,
+  } satisfies DecisionCardsDocument;
+}
+
 export function getDecisionCardContentHash(card: DecisionCard): string {
   const content = JSON.stringify({
     id: card.id,
@@ -276,6 +461,8 @@ export async function generateDecisionCards(args: {
   } catch {
     throw new Error("Decision cards: runner did not return valid JSON.");
   }
+
+  parsed = coerceDecisionCardsDocument(parsed);
 
   validateDocument(parsed);
   const merged = mergeUserFields({

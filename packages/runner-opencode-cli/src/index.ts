@@ -49,6 +49,8 @@ type ParsedOutput = {
   finalError?: string;
   lastText?: string;
   sawFinalRecord: boolean;
+  streamTextParts: string[];
+  nonJsonLines: string[];
 };
 
 type RunnerAttempt = {
@@ -90,7 +92,22 @@ function mergeConfig(role: OttoRole, options: OpencodeCliRunnerOptions): Opencod
 }
 
 function extractPayloadType(obj: JsonRecord): string | undefined {
-  return asString(obj.type) ?? asString(obj.event) ?? asString(obj.kind);
+  const raw = asString(obj.type) ?? asString(obj.event) ?? asString(obj.kind);
+  if (!raw) {
+    return undefined;
+  }
+  return raw.toLowerCase().replace(/-/g, "_");
+}
+
+function extractPartType(obj: JsonRecord): string | undefined {
+  if (!isRecord(obj.part)) {
+    return undefined;
+  }
+  const raw = asString(obj.part.type);
+  if (!raw) {
+    return undefined;
+  }
+  return raw.toLowerCase().replace(/-/g, "_");
 }
 
 function extractSessionId(obj: JsonRecord): string | undefined {
@@ -179,12 +196,26 @@ function extractTextCandidate(obj: JsonRecord): string | undefined {
     }
   }
 
+  if (isRecord(obj.part)) {
+    const partText = asString(obj.part.text) ?? extractTextFromContent(obj.part.content);
+    if (partText) {
+      return partText;
+    }
+  }
+
   return extractTextFromContent(obj.content);
 }
 
 function isFinalRecord(obj: JsonRecord): boolean {
   const payloadType = extractPayloadType(obj);
-  return payloadType === "result" || payloadType === "final" || obj.final === true;
+  const partType = extractPartType(obj);
+  return (
+    payloadType === "result" ||
+    payloadType === "final" ||
+    payloadType === "step_finish" ||
+    partType === "step_finish" ||
+    obj.final === true
+  );
 }
 
 function extractErrorMessage(obj: JsonRecord): string | undefined {
@@ -227,6 +258,11 @@ function extractFinalError(obj: JsonRecord, textCandidate?: string): string | un
 }
 
 function applyJsonRecord(parsed: ParsedOutput, obj: JsonRecord): void {
+  const payloadType = extractPayloadType(obj);
+  const partType = extractPartType(obj);
+  const isTextPayload = payloadType === "text" || partType === "text";
+  const isFinalPayload = isFinalRecord(obj);
+
   const sid = extractSessionId(obj);
   if (sid) {
     parsed.sessionId = sid;
@@ -235,20 +271,27 @@ function applyJsonRecord(parsed: ParsedOutput, obj: JsonRecord): void {
   const textCandidate = extractTextCandidate(obj);
   if (textCandidate) {
     parsed.lastText = textCandidate;
+    if (isTextPayload) {
+      parsed.streamTextParts.push(textCandidate);
+    }
   }
 
   const maybeError = extractFinalError(obj, textCandidate);
-  if (maybeError && isFinalRecord(obj)) {
+  if (maybeError && isFinalPayload) {
     parsed.finalError = maybeError;
   }
 
-  if (isFinalRecord(obj) && textCandidate) {
+  if (isFinalPayload && textCandidate) {
     parsed.finalText = textCandidate;
   }
 }
 
 function parseStreamJson(stdout: string): ParsedOutput {
-  const parsed: ParsedOutput = { sawFinalRecord: false };
+  const parsed: ParsedOutput = {
+    sawFinalRecord: false,
+    streamTextParts: [],
+    nonJsonLines: [],
+  };
 
   for (const line of stdout.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -259,6 +302,7 @@ function parseStreamJson(stdout: string): ParsedOutput {
     const obj = parseJsonLine(trimmed);
     if (!obj) {
       parsed.lastText = trimmed;
+      parsed.nonJsonLines.push(trimmed);
       continue;
     }
 
@@ -269,7 +313,36 @@ function parseStreamJson(stdout: string): ParsedOutput {
     applyJsonRecord(parsed, obj);
   }
 
+  if (!parsed.finalText && parsed.streamTextParts.length > 0) {
+    const joined = parsed.streamTextParts.join("").trim();
+    if (joined.length > 0) {
+      parsed.finalText = joined;
+    }
+  }
+
   return parsed;
+}
+
+function hasInternalFailureSignature(attempt: RunnerAttempt): boolean {
+  if (INTERNAL_FAILURE_PATTERN.test(attempt.execResult.stderr)) {
+    return true;
+  }
+
+  if (attempt.parsed.nonJsonLines.length > 0) {
+    const nonJsonText = attempt.parsed.nonJsonLines.join("\n");
+    if (INTERNAL_FAILURE_PATTERN.test(nonJsonText)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function truncateForError(text: string, maxChars = 4000): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
 }
 
 function buildArgs(args: {
@@ -359,11 +432,13 @@ class OpencodeCliRunner implements OttoRunner {
   }
 
   private formatInternalFailure(attempt: RunnerAttempt, retryAttempt?: RunnerAttempt): OttoRunnerResult {
-    const details = [attempt.execResult.stderr.trim(), attempt.outputText].filter(Boolean).join("\n");
+    const details = truncateForError(
+      [attempt.execResult.stderr.trim(), attempt.outputText].filter(Boolean).join("\n"),
+    );
     const retryNote = retryAttempt
-      ? [retryAttempt.execResult.stderr.trim(), retryAttempt.outputText]
-          .filter(Boolean)
-          .join("\n")
+      ? truncateForError(
+          [retryAttempt.execResult.stderr.trim(), retryAttempt.outputText].filter(Boolean).join("\n"),
+        )
       : "";
 
     return {
@@ -421,7 +496,7 @@ class OpencodeCliRunner implements OttoRunner {
     }
 
     if (!attempt.parsed.sawFinalRecord) {
-      const details = attempt.execResult.stderr.trim() || attempt.outputText;
+      const details = truncateForError(attempt.execResult.stderr.trim() || attempt.outputText);
       return {
         success: false,
         sessionId: attempt.sessionId,
@@ -473,10 +548,14 @@ class OpencodeCliRunner implements OttoRunner {
 
     const firstAttempt = await this.runAttempt({ runOptions: options, cmd, env });
 
-    if (INTERNAL_FAILURE_PATTERN.test(firstAttempt.combined)) {
+    if (hasInternalFailureSignature(firstAttempt)) {
       const shouldRetryIsolatedConfig =
         (this.options.isolateConfigRetry ?? true) &&
-        ISOLATED_CONFIG_RECOVERY_PATTERN.test(firstAttempt.combined);
+        ISOLATED_CONFIG_RECOVERY_PATTERN.test(
+          [firstAttempt.execResult.stderr, ...firstAttempt.parsed.nonJsonLines]
+            .filter(Boolean)
+            .join("\n"),
+        );
       if (shouldRetryIsolatedConfig) {
         let retryAttempt: RunnerAttempt | undefined;
         const isolatedConfigHome = await mkdtemp(path.join(tmpdir(), "otto-opencode-config-"));
@@ -493,7 +572,7 @@ class OpencodeCliRunner implements OttoRunner {
           await rm(isolatedConfigHome, { recursive: true, force: true });
         }
 
-        if (!INTERNAL_FAILURE_PATTERN.test(retryAttempt.combined)) {
+        if (!hasInternalFailureSignature(retryAttempt)) {
           return this.finalizeAttempt(retryAttempt);
         }
 

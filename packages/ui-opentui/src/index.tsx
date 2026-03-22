@@ -149,16 +149,41 @@ function TextPrompt(props: {
 }) {
   const [value, setValue] = useState(props.defaultValue);
 
+  const toPromptString = (next: unknown): string | null => {
+    if (typeof next === "string") {
+      return next;
+    }
+    if (!next || typeof next !== "object") {
+      return null;
+    }
+
+    const record = next as Record<string, unknown>;
+    if (typeof record.value === "string") {
+      return record.value;
+    }
+    if (typeof record.text === "string") {
+      return record.text;
+    }
+    if (typeof record.input === "string") {
+      return record.input;
+    }
+    return null;
+  };
+
   return (
     <PromptShell message={props.message} onCancel={props.onCancel}>
       <input
         focused
         value={value}
         onChange={(next) => {
-          if (typeof next === "string") setValue(next);
+          const nextValue = toPromptString(next);
+          if (nextValue !== null) {
+            setValue(nextValue);
+          }
         }}
-        onSubmit={() => {
-          const trimmed = value.trim();
+        onSubmit={(submitted) => {
+          const submittedValue = toPromptString(submitted) ?? value;
+          const trimmed = submittedValue.trim();
           props.onResolve(trimmed.length > 0 ? trimmed : props.defaultValue);
         }}
       />
