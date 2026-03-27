@@ -226,6 +226,21 @@ export function getDecisionCardContentHash(card: DecisionCard): string {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
+function getDecisionCardSemanticHash(card: DecisionCard): string {
+  const content = JSON.stringify({
+    proposedChange: card.proposedChange,
+    why: card.why,
+    alternatives: card.alternatives,
+    assumptions: card.assumptions,
+    futureState: card.futureState,
+  });
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+function normalizeQuestionKey(question: string): string {
+  return question.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 export function stripEmptyUserFeedback(card: DecisionCard): DecisionCard {
   const trimmed = (card.userFeedback ?? "").trim();
   if (!trimmed) {
@@ -349,7 +364,7 @@ export async function readDecisionCards(
   return await readExistingDecisionCards(decisionCardsPath);
 }
 
-function mergeUserFields(args: {
+export function mergeUserFields(args: {
   next: DecisionCardsDocument;
   previous: DecisionCardsDocument | null;
 }): DecisionCardsDocument {
@@ -358,23 +373,38 @@ function mergeUserFields(args: {
   const prevQuestions = new Map(
     args.previous.openQuestions.map((q) => [q.id, q]),
   );
+  const prevQuestionsByText = new Map(
+    args.previous.openQuestions.map((q) => [normalizeQuestionKey(q.question), q]),
+  );
   const prevDecisions = new Map(args.previous.decisions.map((d) => [d.id, d]));
+  const prevDecisionsBySemanticHash = new Map(
+    args.previous.decisions.map((d) => [getDecisionCardSemanticHash(d), d]),
+  );
 
   const nextQuestions = args.next.openQuestions.map((q) => {
-    const prev = prevQuestions.get(q.id);
+    const prev =
+      prevQuestions.get(q.id) ??
+      prevQuestionsByText.get(normalizeQuestionKey(q.question));
     return prev?.userAnswer ? { ...q, userAnswer: prev.userAnswer } : q;
   });
 
   const nextDecisions = args.next.decisions.map((d) => {
-    const prev = prevDecisions.get(d.id);
     const nextHash = getDecisionCardContentHash(d);
+    const nextSemanticHash = getDecisionCardSemanticHash(d);
+    const prev =
+      prevDecisions.get(d.id) ??
+      prevDecisionsBySemanticHash.get(nextSemanticHash);
     const prevHash = prev ? getDecisionCardContentHash(prev) : null;
+    const prevSemanticHash = prev ? getDecisionCardSemanticHash(prev) : null;
+    const preservedApproval =
+      prev?.approvedHash &&
+      (prev.approvedHash === prevHash || prev.approvedHash === prevSemanticHash);
 
     return {
       ...d,
       ...(prev?.userFeedback ? { userFeedback: prev.userFeedback } : {}),
-      ...(prev?.approvedHash && prevHash === nextHash
-        ? { approvedHash: prev.approvedHash }
+      ...(preservedApproval && prevSemanticHash === nextSemanticHash
+        ? { approvedHash: nextHash }
         : {}),
     };
   });

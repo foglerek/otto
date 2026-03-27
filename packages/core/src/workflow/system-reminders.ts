@@ -17,6 +17,7 @@ export function getTechLeadSystemReminder(
     "Use absolute paths for any file read/write directives you provide.",
     `When writing artifacts under ${artifactRootDir}, reference repo files using absolute paths into the worktree (${worktreePath}).`,
     "When writing documentation text or code comments, use repo-root-relative paths (never absolute filesystem paths).",
+    "Never launch GUI apps or browser/file-open commands (for example: open, xdg-open, start, chrome, safari).",
     "Do NOT commit to git unless the phase explicitly instructs you to commit.",
   ];
 
@@ -44,6 +45,7 @@ export function getTaskAgentSystemReminder(
     `Task reports/reviews/outcomes MUST be written under: ${runDir}`,
     `Code changes MUST be made in the worktree: ${worktreePath}`,
     "Use absolute paths for any file read/write directives you provide.",
+    "Never launch GUI apps or browser/file-open commands (for example: open, xdg-open, start, chrome, safari).",
     "Do NOT commit to git.",
   ];
 
@@ -71,6 +73,7 @@ export function getTaskReviewerSystemReminder(
     `Reviews MUST be written under: ${runDir}`,
     `Review the code in the worktree: ${worktreePath}`,
     "Use absolute paths for any file read/write directives you provide.",
+    "Never launch GUI apps or browser/file-open commands (for example: open, xdg-open, start, chrome, safari).",
     "Do NOT commit to git.",
   ];
 

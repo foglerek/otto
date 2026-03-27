@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type {
   OttoRole,
   OttoRunner,
@@ -31,11 +33,6 @@ const DEFAULT_BY_ROLE: Record<OttoRole, CodexModelConfig> = {
   summarize: { model: "gpt-5-mini" },
 };
 
-function toJsonSchemaArg(schema: OttoRunnerRunOptions["jsonSchema"]): string | null {
-  if (!schema) return null;
-  return JSON.stringify(schema);
-}
-
 function mergeConfig(role: OttoRole, options: CodexCliRunnerOptions): CodexModelConfig {
   return {
     ...DEFAULT_BY_ROLE[role],
@@ -44,12 +41,58 @@ function mergeConfig(role: OttoRole, options: CodexCliRunnerOptions): CodexModel
   };
 }
 
+function resolveMainRepoPath(cwd: string): string | null {
+  const marker = `${path.sep}.worktrees${path.sep}`;
+  const idx = cwd.lastIndexOf(marker);
+  if (idx <= 0) {
+    return null;
+  }
+  const mainRepoPath = cwd.slice(0, idx);
+  return mainRepoPath.length > 0 ? mainRepoPath : null;
+}
+
+function buildWritableRootsOverride(args: {
+  cwd: string;
+  mainRepoPath: string | null;
+}): string | null {
+  if (!args.mainRepoPath) {
+    return null;
+  }
+
+  const roots = [
+    path.resolve(args.cwd),
+    path.resolve(path.join(args.mainRepoPath, ".otto")),
+  ];
+  const uniqueRoots = [...new Set(roots)];
+  const encoded = uniqueRoots.map((root) => JSON.stringify(root)).join(",");
+  return `sandbox_workspace_write.writable_roots=[${encoded}]`;
+}
+
 function buildArgs(args: {
   binary: string;
   run: OttoRunnerRunOptions;
   config: CodexModelConfig;
 }): string[] {
-  const cmd: string[] = [args.binary, "exec", "--json"];
+  const mainRepoPath = resolveMainRepoPath(args.run.cwd);
+  const globalArgs: string[] = [args.binary];
+  const writableRootsOverride = buildWritableRootsOverride({
+    cwd: args.run.cwd,
+    mainRepoPath,
+  });
+  if (writableRootsOverride) {
+    globalArgs.push("-c", writableRootsOverride);
+  }
+
+  const resumeMode = Boolean(args.run.sessionId);
+  const cmd: string[] = resumeMode
+    ? [
+        ...globalArgs,
+        "exec",
+        "resume",
+        "--json",
+        args.run.sessionId as string,
+      ]
+    : [...globalArgs, "exec", "--json"];
 
   if (args.config.model) {
     cmd.push("--model", args.config.model);
@@ -59,11 +102,6 @@ function buildArgs(args: {
     cmd.push("--settings", JSON.stringify(args.config.settingsInline));
   } else if (args.config.settingsPath) {
     cmd.push("--settings", args.config.settingsPath);
-  }
-
-  const schemaArg = toJsonSchemaArg(args.run.jsonSchema);
-  if (schemaArg) {
-    cmd.push("--json-schema", schemaArg);
   }
 
   if (Array.isArray(args.config.extraArgs) && args.config.extraArgs.length > 0) {
@@ -77,6 +115,9 @@ type ParsedOutput = {
   sessionId?: string;
   finalText?: string;
   finalError?: string;
+  lastAgentMessage?: string;
+  sawTerminalRecord: boolean;
+  nonJsonLines: string[];
 };
 
 function parseJsonLine(line: string): any | null {
@@ -87,8 +128,20 @@ function parseJsonLine(line: string): any | null {
   }
 }
 
+function asString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function extractSessionId(obj: any): string | undefined {
-  const sid = obj?.session_id ?? obj?.sessionId;
+  const sid =
+    asString(obj?.session_id) ??
+    asString(obj?.sessionId) ??
+    asString(obj?.thread_id) ??
+    asString(obj?.threadId);
   if (typeof sid === "string" && sid.trim()) {
     return sid;
   }
@@ -105,6 +158,20 @@ function extractTextCandidate(obj: any): string | undefined {
 
 function isFinalRecord(obj: any): boolean {
   return obj?.type === "result" || obj?.type === "final" || obj?.final === true;
+}
+
+function isTerminalRecord(obj: any): boolean {
+  return isFinalRecord(obj) || obj?.type === "turn.completed";
+}
+
+function extractAgentMessage(obj: any): string | undefined {
+  if (obj?.type === "item.completed" && obj?.item?.type === "agent_message") {
+    return asString(obj?.item?.text);
+  }
+  if (obj?.type === "agent_message") {
+    return asString(obj?.text);
+  }
+  return undefined;
 }
 
 function extractFinalError(obj: any, textCandidate?: string): string | undefined {
@@ -126,6 +193,15 @@ function applyJsonRecord(parsed: ParsedOutput, obj: any): void {
     parsed.sessionId = sid;
   }
 
+  const message = extractAgentMessage(obj);
+  if (message) {
+    parsed.lastAgentMessage = message;
+  }
+
+  if (isTerminalRecord(obj)) {
+    parsed.sawTerminalRecord = true;
+  }
+
   if (!isFinalRecord(obj)) {
     return;
   }
@@ -142,15 +218,25 @@ function applyJsonRecord(parsed: ParsedOutput, obj: any): void {
 }
 
 function parseStreamJson(stdout: string): ParsedOutput {
-  const parsed: ParsedOutput = {};
+  const parsed: ParsedOutput = {
+    sawTerminalRecord: false,
+    nonJsonLines: [],
+  };
 
   for (const line of stdout.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
     const obj = parseJsonLine(trimmed);
-    if (!obj) continue;
+    if (!obj) {
+      parsed.nonJsonLines.push(trimmed);
+      continue;
+    }
     applyJsonRecord(parsed, obj);
+  }
+
+  if (!parsed.finalText && parsed.lastAgentMessage) {
+    parsed.finalText = parsed.lastAgentMessage;
   }
 
   return parsed;
@@ -212,6 +298,17 @@ class CodexCliRunner implements OttoRunner {
           outputText ||
           execResult.stderr.trim() ||
           `Codex CLI exited with code ${execResult.exitCode}.`,
+        contextOverflow,
+        timedOut: execResult.timedOut,
+      };
+    }
+
+    if (!parsed.sawTerminalRecord) {
+      return {
+        success: false,
+        sessionId,
+        outputText,
+        error: "Codex CLI did not emit a terminal JSON event.",
         contextOverflow,
         timedOut: execResult.timedOut,
       };

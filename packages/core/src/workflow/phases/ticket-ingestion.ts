@@ -209,6 +209,34 @@ export async function runTicketIngestionPhase(args: {
   }
 
   if (!fileExistsAndHasContent(planFilePath)) {
+    let retrySucceeded = false;
+    args.runtime.reminders.techLead.push(
+      `Ticket ingestion is incomplete until the plan is written at: ${planFilePath}`,
+    );
+    try {
+      await techLeadMicroRetry({
+        runtime: args.runtime,
+        message: `Create the plan file at ${planFilePath} with context, assumptions, and acceptance criteria.`,
+      });
+      retrySucceeded = true;
+    } catch {
+      // Retry failure is captured by artifact checks below.
+    }
+
+    const planExistsAfterRetry = fileExistsAndHasContent(planFilePath);
+    await emitRunEvent({
+      logger: args.runtime.events,
+      runId: args.runtime.state.runId,
+      type: "ticket_ingestion_missing_plan_retry",
+      data: {
+        retrySucceeded,
+        planExistsAfterRetry,
+        techLeadSessionId: args.runtime.state.workflow?.techLeadSessionId ?? null,
+      },
+    });
+  }
+
+  if (!fileExistsAndHasContent(planFilePath)) {
     const worktreePlanFilePath = getWorktreePlanFilePath(args.runtime.state);
     const worktreePlanExists = fileExistsAndHasContent(worktreePlanFilePath);
     await emitRunEvent({

@@ -8,9 +8,7 @@ import {
 import type { OttoRole } from "@otto/ports";
 
 import {
-  OK_SENTINEL_PATTERN,
   OK_SENTINEL_SPEC,
-  buildSentinelPattern,
   describeSentinelExpectation,
   matchOutputSentinel,
   type OutputSentinelSpec,
@@ -52,20 +50,12 @@ export async function sessionMicroRetry(args: {
   sessionId: string | null;
   role: OttoRole;
   timeoutMs?: number;
-  replyWith?: string;
-  requiredPattern?: RegExp;
   sentinelSpec?: OutputSentinelSpec;
 }): Promise<boolean> {
   if (!args.sessionId) return false;
 
   const sentinelSpec = args.sentinelSpec ?? OK_SENTINEL_SPEC;
-  const replyWith =
-    args.replyWith ?? describeSentinelExpectation(sentinelSpec);
-  const requiredPattern =
-    args.requiredPattern ??
-    (args.sentinelSpec
-      ? buildSentinelPattern(args.sentinelSpec)
-      : OK_SENTINEL_PATTERN);
+  const replyWith = describeSentinelExpectation(sentinelSpec);
 
   const prompt = [
     getReminderForRole(args.runtime, args.role),
@@ -91,9 +81,7 @@ export async function sessionMicroRetry(args: {
 
   if (result.success) {
     const output = result.outputText ?? "";
-    const sentinelMatch = args.sentinelSpec
-      ? matchOutputSentinel(output, args.sentinelSpec).matched
-      : requiredPattern.test(output);
+    const sentinelMatch = matchOutputSentinel(output, sentinelSpec).matched;
     if (!sentinelMatch) {
       return false;
     }

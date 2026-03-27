@@ -111,3 +111,129 @@ test("coerceDecisionCardsDocument unwraps nested decisionCards payload", () => {
   assert.equal(output.decisions.length, 1);
   assert.equal(output.openQuestions.length, 1);
 });
+
+test("mergeUserFields preserves approvals across decision id churn", () => {
+  const previousDecision = {
+    id: "D1",
+    proposedChange: "Keep resolvers thin",
+    why: "Service boundary remains clean",
+    alternatives: "Inline domain logic in resolvers",
+    assumptions: "Service APIs remain stable",
+    futureState: "Resolvers orchestrate only",
+  };
+  const previous = {
+    schemaVersion: 1,
+    openQuestions: [],
+    decisions: [
+      {
+        ...previousDecision,
+        approvedHash: decisionCards.getDecisionCardContentHash(previousDecision),
+      },
+    ],
+  };
+
+  const next = {
+    schemaVersion: 1,
+    openQuestions: [],
+    decisions: [
+      {
+        ...previousDecision,
+        id: "D9",
+      },
+      {
+        id: "D10",
+        proposedChange: "Add integration task",
+        why: "Protect rollout quality",
+        alternatives: "No dedicated integration task",
+        assumptions: "Smoke tests stay stable",
+        futureState: "Regression risk lowered",
+      },
+    ],
+  };
+
+  const merged = decisionCards.mergeUserFields({ next, previous });
+  const nextHash = decisionCards.getDecisionCardContentHash(next.decisions[0]);
+  assert.equal(
+    merged.decisions[0].approvedHash,
+    nextHash,
+  );
+  assert.equal(merged.decisions[1].approvedHash, undefined);
+});
+
+test("mergeUserFields preserves open question answers across id churn", () => {
+  const previous = {
+    schemaVersion: 1,
+    openQuestions: [
+      {
+        id: "Q1",
+        question: "Should admin list users remain a mutation?",
+        userAnswer: "Yes, keep parity for now.",
+      },
+    ],
+    decisions: [
+      {
+        id: "D1",
+        proposedChange: "Thin resolver layer",
+        why: "Move domain logic to services",
+        alternatives: "Keep logic in resolvers",
+        assumptions: "Service package boundary holds",
+        futureState: "Resolvers remain transport only",
+      },
+    ],
+  };
+
+  const next = {
+    schemaVersion: 1,
+    openQuestions: [
+      {
+        id: "Q9",
+        question: "Should admin list users remain a mutation?",
+      },
+      {
+        id: "Q10",
+        question: "Do we need a new error code mapping table?",
+      },
+    ],
+    decisions: previous.decisions,
+  };
+
+  const merged = decisionCards.mergeUserFields({ next, previous });
+  assert.equal(merged.openQuestions[0].userAnswer, "Yes, keep parity for now.");
+  assert.equal(merged.openQuestions[1].userAnswer, undefined);
+});
+
+test("mergeUserFields does not preserve approval when decision content changes", () => {
+  const previousDecision = {
+    id: "D1",
+    proposedChange: "Thin resolver layer",
+    why: "Move domain logic to services",
+    alternatives: "Keep logic in resolvers",
+    assumptions: "Service package boundary holds",
+    futureState: "Resolvers remain transport only",
+  };
+  const previous = {
+    schemaVersion: 1,
+    openQuestions: [],
+    decisions: [
+      {
+        ...previousDecision,
+        approvedHash: decisionCards.getDecisionCardContentHash(previousDecision),
+      },
+    ],
+  };
+
+  const next = {
+    schemaVersion: 1,
+    openQuestions: [],
+    decisions: [
+      {
+        ...previousDecision,
+        id: "D1",
+        futureState: "Resolvers plus services with mixed business logic",
+      },
+    ],
+  };
+
+  const merged = decisionCards.mergeUserFields({ next, previous });
+  assert.equal(merged.decisions[0].approvedHash, undefined);
+});

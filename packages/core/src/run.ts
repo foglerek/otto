@@ -28,6 +28,23 @@ function toPreview(text: string, maxChars = 2000): string {
   ].join("");
 }
 
+export function buildRunDefaultEnv(state: OttoStateV1): Record<string, string> {
+  return {
+    ...(state.env ?? {}),
+    ...(state.testEnv ?? {}),
+  };
+}
+
+function mergeExecEnv(
+  defaultEnv: Record<string, string>,
+  overrideEnv: Record<string, string> | undefined,
+): Record<string, string> {
+  return {
+    ...defaultEnv,
+    ...(overrideEnv ?? {}),
+  };
+}
+
 export async function runOttoRun(args: {
   state: OttoStateV1;
   stateFilePath: string;
@@ -57,7 +74,7 @@ export async function runOttoRun(args: {
       }
     },
   };
-  const exec = createNodeExec({
+  const rawExec = createNodeExec({
     registry,
     onStart: async (event) => {
       if (!args.onExecStart) return;
@@ -86,6 +103,21 @@ export async function runOttoRun(args: {
       });
     },
   });
+
+  const defaultExecEnv = buildRunDefaultEnv(args.state);
+  const exec = {
+    run: async (cmd: string[], options: {
+      cwd: string;
+      env?: Record<string, string>;
+      timeoutMs?: number;
+      stdin?: string;
+      label?: string;
+    }) =>
+      await rawExec.run(cmd, {
+        ...options,
+        env: mergeExecEnv(defaultExecEnv, options.env),
+      }),
+  };
 
   const stateStore = createOttoStateStore({
     filePath: args.stateFilePath,
