@@ -10,6 +10,10 @@ export function getPlanFilePath(state: OttoStateV1): string {
   return path.join(getRunDir(state), "plan.md");
 }
 
+export function getFinalReportPath(state: OttoStateV1): string {
+  return path.join(getRunDir(state), "final-report.md");
+}
+
 export function getDecisionCardsPath(state: OttoStateV1): string {
   return path.join(getRunDir(state), "decision-cards.json");
 }

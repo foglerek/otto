@@ -94,10 +94,13 @@ export async function handleResumeCommand(args: string[]): Promise<void> {
         runId: state.runId,
         stoppedAtPhase: result.stoppedAtPhase,
         planFilePath: result.planFilePath,
+        finalReportPath: result.finalReportPath,
       },
       [
         `Run stopped at phase: ${result.stoppedAtPhase}`,
-        `Plan file: ${result.planFilePath}`,
+        result.stoppedAtPhase === "cleanup"
+          ? `Final report: ${result.finalReportPath}`
+          : `Plan file: ${result.planFilePath}`,
         "",
       ],
     );

@@ -11,7 +11,7 @@ import type { OttoStateV1 } from "./state.js";
 import { createOttoStateStore } from "./workflow/state-store.js";
 import { resolveWorkflowRunners } from "./workflow/runtime.js";
 import { runWorkflowOrchestrator } from "./workflow/orchestrator.js";
-import { getPlanFilePath } from "./workflow/paths.js";
+import { getFinalReportPath, getPlanFilePath } from "./workflow/paths.js";
 import { createRunEventLogger, emitRunEvent } from "./workflow/events.js";
 import type { OttoExecEvent, OttoExecStartEvent, OttoRunEvent } from "./workflow/events.js";
 
@@ -53,7 +53,11 @@ export async function runOttoRun(args: {
   onRunEvent?: (event: OttoRunEvent) => void | Promise<void>;
   onExecStart?: (event: OttoExecStartEvent) => void | Promise<void>;
   onExecEvent?: (event: OttoExecEvent) => void | Promise<void>;
-}): Promise<{ planFilePath: string; stoppedAtPhase: string }> {
+}): Promise<{
+  planFilePath: string;
+  finalReportPath: string;
+  stoppedAtPhase: string;
+}> {
   const registry = createProcessRegistry();
   const detachHandlers = attachProcessRegistryExitHandlers(registry);
   const fileEvents = createRunEventLogger({
@@ -154,6 +158,7 @@ export async function runOttoRun(args: {
 
     const { stoppedAtPhase } = await runWorkflowOrchestrator({ runtime });
     const planFilePath = getPlanFilePath(runtime.state);
+    const finalReportPath = getFinalReportPath(runtime.state);
 
     await emitRunEvent({
       logger: events,
@@ -162,10 +167,11 @@ export async function runOttoRun(args: {
       data: {
         stoppedAtPhase,
         planFilePath,
+        finalReportPath,
       },
     });
 
-    return { planFilePath, stoppedAtPhase };
+    return { planFilePath, finalReportPath, stoppedAtPhase };
   } catch (error) {
     await emitRunEvent({
       logger: events,
