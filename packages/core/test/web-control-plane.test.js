@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { test } from "node:test";
 
 import { createJiti } from "jiti";
@@ -7,7 +9,7 @@ const jiti = createJiti(import.meta.url, { interopDefault: true });
 const controlPlaneModule = await jiti(new URL("../src/web/control-plane.ts", import.meta.url).href);
 
 test("web control plane bridges prompt requests through the server", async () => {
-  const controlPlane = controlPlaneModule.createOttoWebControlPlane();
+  const controlPlane = await controlPlaneModule.createOttoWebControlPlane();
 
   const job = await controlPlane.startJob({
     kind: "resume",
@@ -27,7 +29,7 @@ test("web control plane bridges prompt requests through the server", async () =>
 
   let snapshot = controlPlane.getSnapshot();
   assert.equal(snapshot.pendingPrompt?.kind, "confirm");
-  controlPlane.respondToPrompt({
+  await controlPlane.respondToPrompt({
     promptId: snapshot.pendingPrompt.id,
     value: true,
   });
@@ -35,7 +37,7 @@ test("web control plane bridges prompt requests through the server", async () =>
   await new Promise((resolve) => setTimeout(resolve, 0));
   snapshot = controlPlane.getSnapshot();
   assert.equal(snapshot.pendingPrompt?.kind, "text");
-  controlPlane.respondToPrompt({
+  await controlPlane.respondToPrompt({
     promptId: snapshot.pendingPrompt.id,
     value: "ship it",
   });
@@ -45,4 +47,32 @@ test("web control plane bridges prompt requests through the server", async () =>
   assert.equal(snapshot.pendingPrompt, null);
   assert.equal(snapshot.jobs[0].status, "succeeded");
   assert.deepEqual(snapshot.jobs[0].result, { approved: true, note: "ship it" });
+});
+
+test("web control plane persists jobs and fails interrupted sessions on restart", async () => {
+  const tempDir = await fs.mkdtemp(path.join(process.cwd(), ".tmp-web-control-"));
+  const filePath = path.join(tempDir, "web-control-plane.json");
+  const first = await controlPlaneModule.createOttoWebControlPlane({ persistenceFilePath: filePath });
+
+  await first.startJob({
+    kind: "start",
+    runId: "2026-04-04-restart-test",
+    run: async (jobSnapshot) => {
+      const prompt = first.createPromptAdapter({
+        jobId: jobSnapshot.id,
+        runId: jobSnapshot.runId,
+      });
+      await prompt.confirm("Still there?", { defaultValue: true });
+      return { ok: true };
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const second = await controlPlaneModule.createOttoWebControlPlane({ persistenceFilePath: filePath });
+  const snapshot = second.getSnapshot();
+  assert.equal(snapshot.pendingPrompt, null);
+  assert.equal(snapshot.jobs[0].status, "failed");
+  assert.match(snapshot.jobs[0].error, /server restarted/i);
+
+  await fs.rm(tempDir, { recursive: true, force: true });
 });

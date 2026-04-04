@@ -7,6 +7,7 @@ import { getTicketFilePathForId } from "../../tickets/paths.js";
 import { buildInitialRunState } from "../../runs/state.js";
 import { runOttoRun } from "../../run.js";
 import { createNodeExec } from "../../exec.js";
+import { createTrackedPromptAdapter } from "../../prompt-state.js";
 import { output, fail, failNoRunner } from "../output.js";
 import {
   reportExecEventToTerminal,
@@ -19,6 +20,7 @@ import { hasUsableWorkflowRunners } from "../runner-gating.js";
 import { pathExists } from "../utils.js";
 import { acquireRunLock, parseTicketMetaFromId, releaseRunLock, writeStateFile } from "./common.js";
 import { getStateFilePathForRunId } from "../../runs/paths.js";
+import type { OttoWorkflowPhase } from "../../state.js";
 
 const WORKTREE_CREATE_BRANCH_ATTEMPTS = 6;
 
@@ -140,6 +142,18 @@ export async function cleanupFailedWorktreeStart(args: {
   }
 }
 
+async function getTrackedPromptForRun(args: {
+  config: Awaited<ReturnType<typeof loadConfigFromCwd>>["config"];
+  stateFilePath: string;
+  defaultPhase?: OttoWorkflowPhase;
+}) {
+  return createTrackedPromptAdapter({
+    prompt: await getPromptAdapter(args.config),
+    stateFilePath: args.stateFilePath,
+    defaultPhase: args.defaultPhase ?? "ticket-created",
+  });
+}
+
 export async function handleStartCommand(args: string[]): Promise<void> {
   const ticketId = (args[0] ?? "").trim();
   if (!ticketId || args.length !== 1) {
@@ -175,15 +189,13 @@ export async function handleStartCommand(args: string[]): Promise<void> {
     fail(`Run already exists for ticket ${ticketId}. Use: otto resume ${ticketId}`);
     return;
   }
-
   const { date, slug } = parseTicketMetaFromId(ticketId);
   const branchName = config.worktree.branchNamer({
     ticket: { date, slug, filePath: ticketFilePath },
   });
 
   const exec = createNodeExec();
-  const envVars: Record<string, string> = {};
-  const testEnvVars: Record<string, string> = {};
+  const envVars: Record<string, string> = {}, testEnvVars: Record<string, string> = {};
   const baseBranch = config.worktree.baseBranch;
   const created = await createWorktreeWithBranchFallback({
     config,
@@ -252,7 +264,6 @@ export async function handleStartCommand(args: string[]): Promise<void> {
     env: envVars,
     testEnv: testEnvVars,
   });
-
   await writeStateFile(state, state.stateFilePath);
   await acquireRunLock({
     lockFilePath: state.lockFilePath,
@@ -260,7 +271,11 @@ export async function handleStartCommand(args: string[]): Promise<void> {
     stateFilePath: state.stateFilePath,
   });
 
-  const prompt = await getPromptAdapter(config);
+  const prompt = await getTrackedPromptForRun({
+    config,
+    stateFilePath: state.stateFilePath,
+    defaultPhase: state.workflow?.phase ?? "ticket-created",
+  });
   try {
     const result = await runOttoRun({
       state,

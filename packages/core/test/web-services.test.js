@@ -31,9 +31,11 @@ async function makeRepo() {
       '    default: {',
       '      id: "test-lead",',
       '      kind: "test",',
-      '      run: async () => ({',
+      '      run: async (options) => ({',
       '        success: true,',
-      '        outputText: "<SLUG>agent web ticket</SLUG>\\n<CONTENT># Ticket\\n\\nCreated from the browser.\\n</CONTENT>",',
+      '        outputText: options.phaseName === "ticket-ingest"',
+      '          ? "<SLUG>ingest browser ticket</SLUG>\\n<CONTENT># Ignored\\n</CONTENT>"',
+      '          : "<SLUG>agent web ticket</SLUG>\\n<CONTENT># Ticket\\n\\nCreated from the browser.\\n</CONTENT>",',
       '      }),',
       '    },',
       '  },',
@@ -136,6 +138,17 @@ test("web services summarize dashboard and run details", async () => {
   });
   assert.match(created.ticketId, /^\d{4}-\d{2}-\d{2}-agent-web-ticket$/);
   await assert.doesNotReject(fs.stat(created.filePath));
+
+  const ingested = await actions.ingestManagedTicket({
+    cwd: repo,
+    sourceText: "# Imported ticket\n\nCaptured from the web UI.\n",
+    sourceName: "browser-source.md",
+  });
+  assert.match(ingested.ticketId, /^\d{4}-\d{2}-\d{2}-ingest-browser-ticket$/);
+  assert.equal(
+    await fs.readFile(ingested.filePath, "utf8"),
+    "# Imported ticket\n\nCaptured from the web UI.\n",
+  );
 
   const detail = await web.loadWebRunDetailData({ cwd: repo, runId });
   assert.equal(detail.summary.runId, runId);

@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+
 import type { OttoPromptAdapter } from "@otto/ports";
 
 export type OttoWebJobKind = "start" | "resume" | "merge-back";
@@ -31,6 +34,11 @@ export interface OttoWebControlPlaneSnapshot {
   pendingPrompt: OttoWebPromptSnapshot | null;
 }
 
+interface OttoWebControlPlaneFileState extends OttoWebControlPlaneSnapshot {
+  nextJobId: number;
+  nextPromptId: number;
+}
+
 interface OttoWebJobRecord extends OttoWebJobSnapshot {}
 
 interface PendingPromptRecord {
@@ -44,6 +52,44 @@ export class OttoWebControlPlane {
   private nextJobId = 1;
   private nextPromptId = 1;
   private pendingPrompt: PendingPromptRecord | null = null;
+  private readonly persistenceFilePath: string | null;
+  private persistSequence = 1;
+
+  constructor(args?: { persistenceFilePath?: string }) {
+    this.persistenceFilePath = args?.persistenceFilePath ?? null;
+  }
+
+  async initialize(): Promise<void> {
+    if (!this.persistenceFilePath) {
+      return;
+    }
+
+    try {
+      const raw = await fs.readFile(this.persistenceFilePath, "utf8");
+      const parsed = JSON.parse(raw) as OttoWebControlPlaneFileState;
+      this.nextJobId = Math.max(1, Number(parsed.nextJobId) || 1);
+      this.nextPromptId = Math.max(1, Number(parsed.nextPromptId) || 1);
+      this.jobs.clear();
+
+      for (const job of parsed.jobs ?? []) {
+        const normalized = { ...job };
+        if (normalized.status === "running" || normalized.status === "waiting") {
+          normalized.status = "failed";
+          normalized.error = "Otto web server restarted before this job completed.";
+          normalized.finishedAt = new Date().toISOString();
+        }
+        this.jobs.set(normalized.id, normalized);
+      }
+
+      this.pendingPrompt = null;
+      await this.persistSnapshot();
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
 
   getSnapshot(): OttoWebControlPlaneSnapshot {
     return {
@@ -119,6 +165,7 @@ export class OttoWebControlPlane {
     };
     this.nextJobId += 1;
     this.jobs.set(job.id, job);
+    await this.persistSnapshot();
 
     void (async () => {
       try {
@@ -135,13 +182,14 @@ export class OttoWebControlPlane {
           this.pendingPrompt.reject(new Error("Prompt cancelled because the job finished unexpectedly."));
           this.pendingPrompt = null;
         }
+        await this.persistSnapshot();
       }
     })();
 
     return { ...job };
   }
 
-  respondToPrompt(args: { promptId: string; value: unknown }): void {
+  async respondToPrompt(args: { promptId: string; value: unknown }): Promise<void> {
     if (!this.pendingPrompt || this.pendingPrompt.snapshot.id !== args.promptId) {
       throw new Error(`Prompt not found: ${args.promptId}`);
     }
@@ -154,6 +202,7 @@ export class OttoWebControlPlane {
       job.status = "running";
     }
 
+    await this.persistSnapshot();
     pending.resolve(args.value);
   }
 
@@ -187,16 +236,46 @@ export class OttoWebControlPlane {
     };
     this.nextPromptId += 1;
 
-    return await new Promise<unknown>((resolve, reject) => {
-      this.pendingPrompt = {
-        snapshot,
-        resolve,
-        reject,
-      };
+    let resolvePending!: (value: unknown) => void;
+    let rejectPending!: (error: Error) => void;
+    const promise = new Promise<unknown>((resolve, reject) => {
+      resolvePending = resolve;
+      rejectPending = reject;
     });
+
+    this.pendingPrompt = {
+      snapshot,
+      resolve: resolvePending,
+      reject: rejectPending,
+    };
+    await this.persistSnapshot();
+
+    return await promise;
+  }
+
+  private async persistSnapshot(): Promise<void> {
+    if (!this.persistenceFilePath) {
+      return;
+    }
+
+    const payload: OttoWebControlPlaneFileState = {
+      ...this.getSnapshot(),
+      nextJobId: this.nextJobId,
+      nextPromptId: this.nextPromptId,
+    };
+
+    await fs.mkdir(path.dirname(this.persistenceFilePath), { recursive: true });
+    const tempFilePath = `${this.persistenceFilePath}.tmp-${this.persistSequence}`;
+    this.persistSequence += 1;
+    await fs.writeFile(tempFilePath, JSON.stringify(payload, null, 2), "utf8");
+    await fs.rename(tempFilePath, this.persistenceFilePath);
   }
 }
 
-export function createOttoWebControlPlane(): OttoWebControlPlane {
-  return new OttoWebControlPlane();
+export async function createOttoWebControlPlane(args?: {
+  persistenceFilePath?: string;
+}): Promise<OttoWebControlPlane> {
+  const controlPlane = new OttoWebControlPlane(args);
+  await controlPlane.initialize();
+  return controlPlane;
 }

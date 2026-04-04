@@ -365,6 +365,22 @@ textarea {
   border-color: rgba(88, 166, 255, 0.32);
 }
 
+.text-line-input,
+.file-input {
+  width: 100%;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(7, 11, 17, 0.6);
+  color: var(--text);
+  outline: none;
+}
+
+.text-line-input:focus,
+.file-input:focus {
+  border-color: rgba(88, 166, 255, 0.32);
+}
+
 .ticket-list {
   display: grid;
   gap: 8px;

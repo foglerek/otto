@@ -3,6 +3,7 @@ import process from "node:process";
 import type { OttoPromptAdapter } from "@otto/ports";
 
 import { ensureRepoSetup } from "../repo-setup.js";
+import { createTrackedPromptAdapter } from "../prompt-state.js";
 import { listRuns } from "../runs/listing.js";
 import { listManagedTicketIds } from "../tickets/list.js";
 import { getTicketFilePathForId } from "../tickets/paths.js";
@@ -62,6 +63,12 @@ async function runManagedWorkflow(args: {
   config: Awaited<ReturnType<typeof resolveWebRepoContext>>["config"];
   prompt: OttoPromptAdapter;
 } & RunCallbacks): Promise<OttoManagedRunResult> {
+  const trackedPrompt = createTrackedPromptAdapter({
+    prompt: args.prompt,
+    stateFilePath: args.state.stateFilePath,
+    defaultPhase: args.state.workflow?.phase ?? "ticket-created",
+  });
+
   await acquireRunLock({
     lockFilePath: args.state.lockFilePath,
     runId: args.state.runId,
@@ -73,7 +80,7 @@ async function runManagedWorkflow(args: {
       state: args.state,
       stateFilePath: args.state.stateFilePath,
       config: args.config,
-      prompt: args.prompt,
+      prompt: trackedPrompt,
       onRunEvent: args.onRunEvent,
       onExecStart: args.onExecStart,
       onExecEvent: args.onExecEvent,
@@ -83,7 +90,7 @@ async function runManagedWorkflow(args: {
         ? await maybeRunPostCleanupMergeBack({
             state: args.state,
             config: args.config,
-            prompt: args.prompt,
+            prompt: trackedPrompt,
           })
         : null;
 
@@ -304,7 +311,11 @@ export async function mergeBackManagedRun(args: {
   const mergeBack = await maybeRunPostCleanupMergeBack({
     state,
     config: context.config,
-    prompt: args.prompt,
+    prompt: createTrackedPromptAdapter({
+      prompt: args.prompt,
+      stateFilePath: state.stateFilePath,
+      defaultPhase: state.workflow?.phase ?? "cleanup",
+    }),
   });
   return { runId, mergeBack };
 }

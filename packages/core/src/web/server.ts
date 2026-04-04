@@ -4,10 +4,11 @@ import process from "node:process";
 
 import { UI_WEB_APP_SCRIPT, UI_WEB_STYLES, renderUiWebDocument } from "@otto/ui-web";
 
-import { createManagedTicket, deleteManagedRun, listManagedTickets } from "../services/actions.js";
+import { ensureRepoSetup } from "../repo-setup.js";
+import { createManagedTicket, deleteManagedRun, ingestManagedTicket, listManagedTickets } from "../services/actions.js";
 import { mergeBackManagedRun, resumeManagedRun, startManagedRun } from "../services/run-actions.js";
-import { loadWebDashboardData, loadWebRunDetailData } from "../services/web.js";
-import { createOttoWebControlPlane } from "./control-plane.js";
+import { loadWebDashboardData, loadWebRunDetailData, resolveWebRepoContext } from "../services/web.js";
+import { createOttoWebControlPlane, type OttoWebControlPlane } from "./control-plane.js";
 
 export interface OttoWebServerHandle {
   url: string;
@@ -82,7 +83,7 @@ async function handleSimpleApiRoutes(args: {
   pathname: string;
   method: string;
   res: http.ServerResponse;
-  controlPlane: ReturnType<typeof createOttoWebControlPlane>;
+  controlPlane: OttoWebControlPlane;
   req: http.IncomingMessage;
 }): Promise<boolean> {
   if (args.pathname === "/api/status") {
@@ -107,6 +108,17 @@ async function handleSimpleApiRoutes(args: {
     return true;
   }
 
+  if (args.pathname === "/api/tickets/ingest" && args.method === "POST") {
+    const body = (await readJsonBody(args.req)) as {
+      sourceText?: unknown;
+      sourceName?: unknown;
+    };
+    const sourceText = typeof body.sourceText === "string" ? body.sourceText : "";
+    const sourceName = typeof body.sourceName === "string" ? body.sourceName : undefined;
+    writeJson(args.res, 200, await ingestManagedTicket({ cwd: args.cwd, sourceText, sourceName }));
+    return true;
+  }
+
   if (args.pathname === "/api/runs") {
     const dashboard = await loadWebDashboardData(args.cwd);
     writeJson(args.res, 200, dashboard.runs);
@@ -127,7 +139,7 @@ async function handleRunMutationRoutes(args: {
   method: string;
   req: http.IncomingMessage;
   res: http.ServerResponse;
-  controlPlane: ReturnType<typeof createOttoWebControlPlane>;
+  controlPlane: OttoWebControlPlane;
 }): Promise<boolean> {
   if (args.pathname === "/api/runs/start" && args.method === "POST") {
     const body = (await readJsonBody(args.req)) as { ticketId?: unknown };
@@ -207,7 +219,7 @@ async function handleDynamicReadRoutes(args: {
   method: string;
   req: http.IncomingMessage;
   res: http.ServerResponse;
-  controlPlane: ReturnType<typeof createOttoWebControlPlane>;
+  controlPlane: OttoWebControlPlane;
 }): Promise<boolean> {
   const runMatch = args.pathname.match(/^\/api\/runs\/([^/]+)$/);
   if (runMatch) {
@@ -221,7 +233,7 @@ async function handleDynamicReadRoutes(args: {
   const promptMatch = args.pathname.match(/^\/api\/prompts\/([^/]+)\/respond$/);
   if (promptMatch && args.method === "POST") {
     const body = (await readJsonBody(args.req)) as { value?: unknown };
-    args.controlPlane.respondToPrompt({
+    await args.controlPlane.respondToPrompt({
       promptId: decodeURIComponent(promptMatch[1]),
       value: body.value,
     });
@@ -233,7 +245,14 @@ async function handleDynamicReadRoutes(args: {
 }
 
 async function createHttpServer(cwd: string): Promise<http.Server> {
-  const controlPlane = createOttoWebControlPlane();
+  const context = await resolveWebRepoContext(cwd);
+  const { artifactPaths } = await ensureRepoSetup({
+    mainRepoPath: context.mainRepoPath,
+    config: context.config,
+  });
+  const controlPlane = await createOttoWebControlPlane({
+    persistenceFilePath: `${artifactPaths.statesDir}/web-control-plane.json`,
+  });
 
   return http.createServer(async (req, res) => {
     try {

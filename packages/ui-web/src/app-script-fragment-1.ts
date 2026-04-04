@@ -4,12 +4,15 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_1 = `const state = {
   selectedRunId: null,
   detailCache: new Map(),
   ticketDraft: "",
+  ingestDraft: "",
+  ingestSourceName: "browser-ingest.md",
   promptDraft: "",
   promptSelection: "",
   seenPromptId: null,
   actionMessage: "",
   actionError: "",
   isCreatingTicket: false,
+  isIngestingTicket: false,
   isDeletingRun: false,
 };
 
@@ -290,6 +293,7 @@ function renderApp() {
   const dashboard = state.dashboard;
   const selectedDetail = state.selectedRunId ? state.detailCache.get(state.selectedRunId) : null;
   const createLabel = state.isCreatingTicket ? 'Creating...' : 'Create ticket';
+  const ingestLabel = state.isIngestingTicket ? 'Ingesting...' : 'Ingest external ticket';
 
   document.getElementById('app').innerHTML = '<div class="app-shell">' +
     '<aside class="sidebar">' +
@@ -321,6 +325,13 @@ function renderApp() {
           '<div><p class="eyebrow">Create ticket</p><p class="subtle">Quick browser action routed through the shared core service layer.</p></div>' +
           '<textarea id="ticket-draft" class="text-input" rows="5" placeholder="Describe the work you want Otto to tackle.">' + escapeHtml(state.ticketDraft) + '</textarea>' +
           '<button class="button button-primary" id="create-ticket-button"' + (state.isCreatingTicket || isJobBusy() ? ' disabled' : '') + '>' + createLabel + '</button>' +
+        '</div>' +
+        '<div class="panel stack">' +
+          '<div><p class="eyebrow">Ingest external ticket</p><p class="subtle">Paste or type markdown, or upload a file and send its contents through the ingest flow.</p></div>' +
+          '<input id="ingest-file-input" class="file-input" type="file"' + (state.isIngestingTicket || isJobBusy() ? ' disabled' : '') + ' />' +
+          '<input id="ingest-source-name" class="text-line-input mono" type="text" value="' + escapeHtml(state.ingestSourceName) + '"' + (state.isIngestingTicket || isJobBusy() ? ' disabled' : '') + ' />' +
+          '<textarea id="ingest-draft" class="text-input" rows="7" placeholder="# Imported ticket\n\nPaste or type external ticket content here.">' + escapeHtml(state.ingestDraft) + '</textarea>' +
+          '<button class="button button-primary" id="ingest-ticket-button"' + (state.isIngestingTicket || isJobBusy() ? ' disabled' : '') + '>' + ingestLabel + '</button>' +
         '</div>' +
         '<div class="panel stack">' +
           '<div><p class="eyebrow">Tickets</p><p class="subtle">Start browser-driven runs directly from the inventory.</p></div>' +

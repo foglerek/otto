@@ -12,6 +12,31 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_2 = `  const refresh = document.getEleme
     });
   }
 
+  const ingestDraft = document.getElementById('ingest-draft');
+  if (ingestDraft) {
+    ingestDraft.addEventListener('input', (event) => {
+      state.ingestDraft = event.target.value;
+    });
+  }
+
+  const ingestSourceName = document.getElementById('ingest-source-name');
+  if (ingestSourceName) {
+    ingestSourceName.addEventListener('input', (event) => {
+      state.ingestSourceName = event.target.value;
+    });
+  }
+
+  const ingestFileInput = document.getElementById('ingest-file-input');
+  if (ingestFileInput) {
+    ingestFileInput.addEventListener('change', async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      state.ingestSourceName = file.name || 'browser-ingest.md';
+      state.ingestDraft = await file.text();
+      renderApp();
+    });
+  }
+
   const promptDraft = document.getElementById('prompt-draft');
   if (promptDraft) {
     promptDraft.addEventListener('input', (event) => {
@@ -32,6 +57,13 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_2 = `  const refresh = document.getEleme
   if (createButton) {
     createButton.addEventListener('click', () => {
       void createTicket();
+    });
+  }
+
+  const ingestButton = document.getElementById('ingest-ticket-button');
+  if (ingestButton) {
+    ingestButton.addEventListener('click', () => {
+      void ingestTicket();
     });
   }
 
@@ -130,6 +162,41 @@ async function createTicket() {
     renderApp();
   } finally {
     state.isCreatingTicket = false;
+    renderApp();
+  }
+}
+
+async function ingestTicket() {
+  const sourceText = state.ingestDraft.trim();
+  if (!sourceText || state.isIngestingTicket || isJobBusy()) {
+    return;
+  }
+
+  state.isIngestingTicket = true;
+  clearActionState();
+  renderApp();
+
+  try {
+    const result = await fetchJson('/api/tickets/ingest', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sourceText: state.ingestDraft,
+        sourceName: state.ingestSourceName,
+      }),
+    });
+    state.ingestDraft = '';
+    state.ingestSourceName = 'browser-ingest.md';
+    state.actionMessage = 'Ingested ticket ' + result.ticketId + '.';
+    await refreshAll();
+  } catch (error) {
+    state.actionError = error.message || String(error);
+    renderApp();
+  } finally {
+    state.isIngestingTicket = false;
     renderApp();
   }
 }

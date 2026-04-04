@@ -4,6 +4,7 @@ import { ensureRepoSetup } from "../../repo-setup.js";
 import { listRuns } from "../../runs/listing.js";
 import { loadOttoState } from "../../state.js";
 import { runOttoRun } from "../../run.js";
+import { createTrackedPromptAdapter } from "../../prompt-state.js";
 import { isRunLockStale, readRunLockFile } from "../../locks/run-lock.js";
 import { output, fail, failNoRunner } from "../output.js";
 import {
@@ -78,7 +79,11 @@ export async function handleResumeCommand(args: string[]): Promise<void> {
     stateFilePath: state.stateFilePath,
   });
 
-  const prompt = await getPromptAdapter(config);
+  const prompt = createTrackedPromptAdapter({
+    prompt: await getPromptAdapter(config),
+    stateFilePath: state.stateFilePath,
+    defaultPhase: state.workflow?.phase ?? "ticket-created",
+  });
   try {
     const result = await runOttoRun({
       state,

@@ -255,10 +255,10 @@ Exit criteria:
 Current progress:
 
 - `create ticket` is now wired through the browser to shared core services.
+- `ingest ticket` now supports both pasted/typed markdown and uploaded file contents sent through the ingest flow.
 - `delete run` is now wired through the browser to shared core services.
 - `start`, `resume`, and `merge back` now run through a server-owned web job/control-plane substrate.
 - the short-term prompt bridge is now live: the server keeps pending prompt state in memory and the browser submits prompt responses back to the server.
-- `ingest` remains pending.
 
 Exit criteria:
 
@@ -274,7 +274,9 @@ Current progress:
 
 - server-owned prompt bridge is implemented for the current local web session
 - browser prompt inbox/waiting states are implemented
-- current persistence model is in-memory server state, which survives browser reloads but not server restarts
+- control-plane job/prompt snapshot now persists to `.otto/states/web-control-plane.json`
+- on server restart, incomplete web jobs are surfaced as failed instead of silently disappearing
+- a first control-plane-state step is now in place: tracked prompt adapters toggle `workflow.needsUserInput` in persisted run state during prompt waits
 - medium-term refactor toward explicit control-plane pending actions remains open
 
 Exit criteria:
@@ -330,11 +332,11 @@ That delivers immediate UX value before the prompt bridge and action workflows l
 The current short-term bridge is intentionally minimal.
 
 - only one interactive web-controlled Otto job is supported at a time
-- pending prompt state is server-memory-backed rather than durable across server restarts
+- persisted job state survives server restart, but interrupted jobs are failed rather than resumed
 - core still expresses human decisions as imperative prompt calls rather than explicit pending actions/state
 
 That makes the next logical slices:
 
-1. add browser ingest and remaining polish on the current web action surface
+1. polish the current web action surface and richer live oversight
 2. improve prompt/job durability and richer live oversight
 3. medium term: refactor core from imperative prompts to explicit control-plane pending actions

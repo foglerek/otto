@@ -1,4 +1,6 @@
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import type { OttoPromptAdapter } from "@otto/ports";
 
@@ -10,7 +12,7 @@ import { createNodeExec } from "../exec.js";
 import { killOttoProcess } from "../runs/kill.js";
 import { isRunLockStale, readRunLockFile } from "../locks/run-lock.js";
 import { listManagedTicketIds } from "../tickets/list.js";
-import { runTicketCreate } from "../cli/commands/tickets.js";
+import { runTicketCreate, runTicketIngest } from "../cli/commands/tickets.js";
 import { getProjectLeadRunner } from "../cli/runner-gating.js";
 
 import { resolveWebRepoContext } from "./web.js";
@@ -22,6 +24,11 @@ export interface OttoManagedTicketSummary {
 }
 
 export interface OttoCreateTicketResult {
+  ticketId: string;
+  filePath: string;
+}
+
+export interface OttoIngestTicketResult {
   ticketId: string;
   filePath: string;
 }
@@ -39,6 +46,46 @@ function createNeverPromptAdapter(): OttoPromptAdapter {
     confirm: fail,
     text: fail,
     select: fail,
+  };
+}
+
+function sanitizeUploadName(fileName: string | undefined): string {
+  const trimmed = (fileName ?? "browser-ingest.md").trim();
+  const basename = path.basename(trimmed);
+  return basename.length > 0 ? basename : "browser-ingest.md";
+}
+
+async function withTemporaryIngestSourceFile<T>(args: {
+  sourceText: string;
+  sourceName?: string;
+  run: (sourceFilePath: string) => Promise<T>;
+}): Promise<T> {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "otto-web-ingest-"));
+  const sourceFilePath = path.join(tempDir, sanitizeUploadName(args.sourceName));
+  await fs.writeFile(sourceFilePath, args.sourceText, "utf8");
+
+  try {
+    return await args.run(sourceFilePath);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function getManagedProjectLeadContext(cwd: string) {
+  const context = await resolveWebRepoContext(cwd);
+  const runner = getProjectLeadRunner(context.config);
+  if (!runner) {
+    throw new Error("Error, need to configure at least one runner. See README");
+  }
+
+  await ensureRepoSetup({
+    mainRepoPath: context.mainRepoPath,
+    config: context.config,
+  });
+
+  return {
+    context,
+    runner,
   };
 }
 
@@ -71,21 +118,35 @@ export async function createManagedTicket(args: {
     throw new Error("Ticket text is required.");
   }
 
-  const context = await resolveWebRepoContext(args.cwd);
-  const runner = getProjectLeadRunner(context.config);
-  if (!runner) {
-    throw new Error("Error, need to configure at least one runner. See README");
-  }
-
-  await ensureRepoSetup({
-    mainRepoPath: context.mainRepoPath,
-    config: context.config,
-  });
+  const { context, runner } = await getManagedProjectLeadContext(args.cwd);
 
   return await runTicketCreate({
     repoPath: context.mainRepoPath,
     runner,
     ticketText,
+  });
+}
+
+export async function ingestManagedTicket(args: {
+  cwd: string;
+  sourceText: string;
+  sourceName?: string;
+}): Promise<OttoIngestTicketResult> {
+  if (!args.sourceText.trim()) {
+    throw new Error("Ticket source text is required.");
+  }
+
+  const { context, runner } = await getManagedProjectLeadContext(args.cwd);
+
+  return await withTemporaryIngestSourceFile({
+    sourceText: args.sourceText,
+    sourceName: args.sourceName,
+    run: async (sourceFilePath) =>
+      await runTicketIngest({
+        repoPath: context.mainRepoPath,
+        runner,
+        sourceFilePath,
+      }),
   });
 }
 

@@ -15,6 +15,7 @@ test("ui-web exports document and static assets", () => {
   assert.match(mod.UI_WEB_APP_SCRIPT, /\/api\/tickets\/create/);
   assert.match(mod.UI_WEB_APP_SCRIPT, /\/delete/);
   assert.match(mod.UI_WEB_APP_SCRIPT, /\/api\/control-plane/);
+  assert.match(mod.UI_WEB_APP_SCRIPT, /\/api\/tickets\/ingest/);
   assert.match(mod.UI_WEB_APP_SCRIPT, /\/api\/runs\/start/);
   assert.match(mod.UI_WEB_APP_SCRIPT, /\/resume/);
 });
