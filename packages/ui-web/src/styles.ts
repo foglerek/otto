@@ -370,6 +370,12 @@ textarea {
   gap: 8px;
 }
 
+.prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .ticket-row {
   display: flex;
   align-items: center;
@@ -398,6 +404,29 @@ textarea {
   border-color: rgba(242, 109, 120, 0.24);
   color: #ffd8dc;
   background: rgba(242, 109, 120, 0.1);
+}
+
+.button-secondary {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.prompt-panel {
+  border-color: rgba(88, 166, 255, 0.2);
+}
+
+.prompt-message {
+  margin: 0;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(202, 214, 229, 0.08);
+  background: rgba(7, 11, 17, 0.56);
+  color: var(--text-secondary);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .footer-note {

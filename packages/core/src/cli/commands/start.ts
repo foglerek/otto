@@ -72,7 +72,7 @@ export async function createWorktreeWithBranchFallback(args: {
       );
 }
 
-async function cleanupFailedWorktreeStart(args: {
+export async function cleanupFailedWorktreeStart(args: {
   config: Awaited<ReturnType<typeof loadConfigFromCwd>>["config"];
   mainRepoPath: string;
   worktreePath: string;

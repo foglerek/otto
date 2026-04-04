@@ -145,15 +145,29 @@ CLI handlers should become thin wrappers over those services.
 
 This is the key enabling piece.
 
-Otto already has an `OttoPromptAdapter` abstraction in `@otto/ports`. The web stack should implement a browser-backed prompt adapter instead of introducing a separate prompt system.
+Otto already has an `OttoPromptAdapter` abstraction in `@otto/ports`. The web stack should implement a server-owned prompt bridge that surfaces prompt requests in the browser UI instead of introducing a separate prompt system.
+
+Important architecture clarification:
+
+- the browser is only the UI surface
+- the local server is the control plane
+- `@otto/core` still owns workflow execution and runner orchestration
+
+Short term:
+
+- bridge the existing `OttoPromptAdapter` model on the server so browser-driven `start` / `resume` can work soon
+
+Medium term:
+
+- progressively refactor core away from imperative prompt calls toward explicit control-plane state and pending actions
 
 Recommended flow:
 
-1. A service call needs `confirm`, `text`, or `select`.
-2. `@otto/ui-web-server` emits a prompt request to the browser over SSE/WebSocket.
-3. The browser renders the prompt in a persistent prompt inbox/modal.
-4. The user responds.
-5. The server resolves the pending prompt promise and the workflow continues.
+1. A server-owned Otto job needs `confirm`, `text`, or `select`.
+2. The server records a pending prompt request.
+3. The browser renders that request in a persistent prompt inbox/modal.
+4. The user responds to the server.
+5. The server resolves the prompt promise and core execution continues.
 
 Requirements:
 
@@ -161,6 +175,7 @@ Requirements:
 - prompt persistence across browser reloads/reconnects
 - visible waiting state in the run detail page
 - no background worker should ever try to prompt directly to a TTY in web mode
+- the server, not the browser, remains the owner of run/job lifecycle
 
 ## Live Updates
 
@@ -241,7 +256,9 @@ Current progress:
 
 - `create ticket` is now wired through the browser to shared core services.
 - `delete run` is now wired through the browser to shared core services.
-- `ingest`, `start`, `resume`, and `merge back` remain pending because the next safe slice needs prompt-bridge and long-running action coordination.
+- `start`, `resume`, and `merge back` now run through a server-owned web job/control-plane substrate.
+- the short-term prompt bridge is now live: the server keeps pending prompt state in memory and the browser submits prompt responses back to the server.
+- `ingest` remains pending.
 
 Exit criteria:
 
@@ -249,9 +266,16 @@ Exit criteria:
 
 ### Phase 3: Prompt bridge
 
-- implement browser-backed `OttoPromptAdapter`
+- implement server-owned prompt bridge backed by `OttoPromptAdapter`
 - surface prompt inbox and waiting states
 - ensure reconnect-safe prompt handling
+
+Current progress:
+
+- server-owned prompt bridge is implemented for the current local web session
+- browser prompt inbox/waiting states are implemented
+- current persistence model is in-memory server state, which survives browser reloads but not server restarts
+- medium-term refactor toward explicit control-plane pending actions remains open
 
 Exit criteria:
 
@@ -303,13 +327,14 @@ That delivers immediate UX value before the prompt bridge and action workflows l
 
 ## Current Uncertainty Boundary
 
-The next browser actions are no longer just CRUD-style calls.
+The current short-term bridge is intentionally minimal.
 
-- `start`, `resume`, and `merge back` can trigger prompt-heavy or long-running workflows.
-- A robust browser implementation now needs job lifecycle handling plus the browser-backed `OttoPromptAdapter` bridge.
+- only one interactive web-controlled Otto job is supported at a time
+- pending prompt state is server-memory-backed rather than durable across server restarts
+- core still expresses human decisions as imperative prompt calls rather than explicit pending actions/state
 
-That makes the next logical slice:
+That makes the next logical slices:
 
-1. long-running action/job coordination for browser-triggered workflows
-2. browser prompt inbox / prompt resolution transport
-3. then browser `start` / `resume` / `merge-back` actions on top of that substrate
+1. add browser ingest and remaining polish on the current web action surface
+2. improve prompt/job durability and richer live oversight
+3. medium term: refactor core from imperative prompts to explicit control-plane pending actions

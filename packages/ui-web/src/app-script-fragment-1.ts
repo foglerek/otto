@@ -1,0 +1,369 @@
+export const UI_WEB_APP_SCRIPT_FRAGMENT_1 = `const state = {
+  dashboard: null,
+  controlPlane: null,
+  selectedRunId: null,
+  detailCache: new Map(),
+  ticketDraft: "",
+  promptDraft: "",
+  promptSelection: "",
+  seenPromptId: null,
+  actionMessage: "",
+  actionError: "",
+  isCreatingTicket: false,
+  isDeletingRun: false,
+};
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+async function fetchJson(url, options) {
+  const response = await fetch(url, {
+    headers: { accept: "application/json" },
+    ...(options || {}),
+  });
+  if (!response.ok) {
+    let message = "Request failed: " + response.status;
+    try {
+      const data = await response.json();
+      if (data && typeof data.error === "string") {
+        message = data.error;
+      }
+    } catch {
+      const text = await response.text();
+      if (text) {
+        message = text;
+      }
+    }
+    throw new Error(message);
+  }
+  return await response.json();
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function statusBadge(status) {
+  const cls = status === "active" ? "active" : status === "stale" ? "stale" : "done";
+  return '<span class="badge ' + cls + '">' + escapeHtml(status) + '</span>';
+}
+
+function ensureSelectedRun() {
+  const runs = state.dashboard?.runs ?? [];
+  if (runs.length === 0) {
+    state.selectedRunId = null;
+    return;
+  }
+  const exists = runs.some((run) => run.runId === state.selectedRunId);
+  if (!exists) {
+    state.selectedRunId = runs[0].runId;
+  }
+}
+
+function getActiveJob() {
+  const jobs = state.controlPlane?.jobs ?? [];
+  return jobs.find((job) => job.status === 'running' || job.status === 'waiting') ?? null;
+}
+
+function isJobBusy() {
+  return Boolean(getActiveJob());
+}
+
+function clearActionState() {
+  state.actionMessage = "";
+  state.actionError = "";
+}
+
+function renderRunList(runs) {
+  if (runs.length === 0) {
+    return '<div class="panel"><p class="subtle">No Otto runs found yet.</p></div>';
+  }
+  return '<div class="runs-list">' + runs.map((run) => {
+    const active = run.runId === state.selectedRunId ? ' active' : '';
+    const waiting = run.needsUserInput ? '<span class="badge waiting">waiting</span>' : '';
+    return '<button class="run-row' + active + '" data-run-id="' + escapeHtml(run.runId) + '">' +
+      '<div class="run-row-title">' +
+        '<strong>' + escapeHtml(run.ticketSlug || run.runId) + '</strong>' +
+        statusBadge(run.processStatus) +
+      '</div>' +
+      '<p class="subtle mono">' + escapeHtml(run.runId) + '</p>' +
+      '<div class="badge-row">' +
+        '<span class="badge">' + escapeHtml(run.phase || 'unknown') + '</span>' +
+        '<span class="badge">queue ' + escapeHtml(run.taskQueueLength) + '</span>' +
+        waiting +
+      '</div>' +
+    '</button>';
+  }).join('') + '</div>';
+}
+
+function renderTicketList(tickets) {
+  if (!tickets.length) {
+    return '<p class="subtle">No managed tickets yet.</p>';
+  }
+  const busy = isJobBusy();
+  return '<div class="ticket-list">' + tickets.map((ticket) => {
+    const action = ticket.hasRun
+      ? '<span class="badge">started</span>'
+      : '<button class="button button-secondary ticket-start-button" data-ticket-id="' + escapeHtml(ticket.ticketId) + '"' + (busy ? ' disabled' : '') + '>Start</button>';
+    return '<div class="ticket-row">' +
+      '<div>' +
+        '<strong class="mono">' + escapeHtml(ticket.ticketId) + '</strong>' +
+      '</div>' +
+      action +
+    '</div>';
+  }).join('') + '</div>';
+}
+
+function renderArtifacts(artifacts) {
+  return artifacts.map((artifact) => {
+    const body = artifact.exists
+      ? '<pre>' + escapeHtml(artifact.content || '') + '</pre>'
+      : '<p class="subtle">Not present yet.</p>';
+    const trunc = artifact.truncated ? '<span class="badge">truncated</span>' : '';
+    return '<article class="artifact-card">' +
+      '<div class="detail-topline">' +
+        '<div><p class="eyebrow">Artifact</p><h3>' + escapeHtml(artifact.title) + '</h3></div>' +
+        '<div class="detail-badges">' +
+          '<span class="badge mono">' + escapeHtml(artifact.language) + '</span>' + trunc +
+        '</div>' +
+      '</div>' +
+      '<p class="footer-note mono">' + escapeHtml(artifact.path) + '</p>' +
+      body +
+    '</article>';
+  }).join('');
+}
+
+function renderJsonLines(title, items, formatter) {
+  const body = items.length > 0
+    ? '<pre>' + escapeHtml(items.map(formatter).join('\\n\\n')) + '</pre>'
+    : '<p class="subtle">No entries yet.</p>';
+  return '<article class="timeline-card">' +
+    '<p class="eyebrow">Timeline</p>' +
+    '<h3>' + escapeHtml(title) + '</h3>' +
+    body +
+  '</article>';
+}
+
+function renderActionStatus() {
+  if (state.actionError) {
+    return '<div class="action-banner error">' + escapeHtml(state.actionError) + '</div>';
+  }
+  if (state.actionMessage) {
+    return '<div class="action-banner success">' + escapeHtml(state.actionMessage) + '</div>';
+  }
+  return '';
+}
+
+function renderJobStatus() {
+  const job = getActiveJob();
+  if (!job) {
+    const latest = state.controlPlane?.jobs?.[0] ?? null;
+    if (!latest) return '';
+    const className = latest.status === 'failed' ? 'error' : 'success';
+    const detail = latest.error ? escapeHtml(latest.error) : escapeHtml(latest.status);
+    return '<div class="panel stack">' +
+      '<div><p class="eyebrow">Latest job</p><p><strong>' + escapeHtml(latest.kind) + '</strong> <span class="mono">' + escapeHtml(latest.runId) + '</span></p></div>' +
+      '<div class="action-banner ' + className + '">' + detail + '</div>' +
+    '</div>';
+  }
+
+  return '<div class="panel stack">' +
+    '<div><p class="eyebrow">Active job</p><p><strong>' + escapeHtml(job.kind) + '</strong> <span class="mono">' + escapeHtml(job.runId) + '</span></p></div>' +
+    '<div class="badge-row">' +
+      '<span class="badge ' + (job.status === 'waiting' ? 'waiting' : 'active') + '">' + escapeHtml(job.status) + '</span>' +
+      '<span class="badge mono">' + escapeHtml(formatDate(job.startedAt)) + '</span>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderPromptInbox() {
+  const prompt = state.controlPlane?.pendingPrompt;
+  if (!prompt) return '';
+
+  let body = '';
+  if (prompt.kind === 'confirm') {
+    body = '<div class="prompt-actions">' +
+      '<button class="button button-primary prompt-confirm-button" data-prompt-id="' + escapeHtml(prompt.id) + '" data-value="true">Confirm</button>' +
+      '<button class="button prompt-confirm-button" data-prompt-id="' + escapeHtml(prompt.id) + '" data-value="false">Cancel</button>' +
+    '</div>';
+  } else if (prompt.kind === 'select') {
+    body = '<div class="prompt-actions">' + (prompt.choices || []).map((choice) =>
+      '<button class="button prompt-select-button" data-prompt-id="' + escapeHtml(prompt.id) + '" data-choice="' + escapeHtml(choice) + '">' + escapeHtml(choice) + '</button>'
+    ).join('') + '</div>';
+  } else {
+    body = '<textarea id="prompt-draft" class="text-input" rows="6">' + escapeHtml(state.promptDraft) + '</textarea>' +
+      '<div class="prompt-actions">' +
+      '<button class="button button-primary" id="submit-prompt-button" data-prompt-id="' + escapeHtml(prompt.id) + '">Submit response</button>' +
+      '</div>';
+  }
+
+  return '<div class="panel stack prompt-panel">' +
+    '<div><p class="eyebrow">Prompt inbox</p><p class="subtle">The server is waiting on input for <span class="mono">' + escapeHtml(prompt.runId) + '</span>.</p></div>' +
+    '<pre class="prompt-message">' + escapeHtml(prompt.message) + '</pre>' +
+    body +
+  '</div>';
+}
+
+function renderDetail(detail) {
+  if (!detail) {
+    return '<div class="stack">' + renderPromptInbox() + '<div class="empty-state"><div><span class="wordmark">OTTO</span><p>Select a run to inspect its artifacts and telemetry.</p></div></div></div>';
+  }
+
+  const run = detail.summary;
+  const eventsCard = renderJsonLines('Run events', detail.recentEvents, (entry) => {
+    return '[' + entry.at + '] ' + entry.type + (entry.data ? '\\n' + JSON.stringify(entry.data, null, 2) : '');
+  });
+  const execCard = renderJsonLines('Exec events', detail.recentExecs, (entry) => {
+    return '[' + entry.at + '] ' + entry.label + ' exit=' + entry.exitCode + ' timedOut=' + entry.timedOut + ' durationMs=' + entry.durationMs;
+  });
+  const deleteLabel = state.isDeletingRun ? 'Deleting...' : 'Delete run';
+  const canResume = run.processStatus !== 'active';
+  const canMergeBack = run.processStatus !== 'active' && run.finalReportAvailable;
+
+  return '<div class="stack">' +
+    renderPromptInbox() +
+    renderActionStatus() +
+    '<section class="header-block">' +
+      '<div class="toolbar">' +
+        '<div>' +
+          '<p class="eyebrow">Run detail</p>' +
+          '<h1 class="title">' + escapeHtml(run.ticketSlug || run.runId) + '</h1>' +
+          '<p class="subtle mono">' + escapeHtml(run.runId) + '</p>' +
+        '</div>' +
+        '<div class="detail-actions">' +
+          '<div class="detail-badges">' +
+            statusBadge(run.processStatus) +
+            '<span class="badge">phase ' + escapeHtml(run.phase || 'unknown') + '</span>' +
+            (run.needsUserInput ? '<span class="badge waiting">awaiting input</span>' : '') +
+          '</div>' +
+          '<div class="prompt-actions">' +
+            (canResume ? '<button class="button button-primary" id="resume-run-button" data-run-id="' + escapeHtml(run.runId) + '"' + (isJobBusy() ? ' disabled' : '') + '>Resume</button>' : '') +
+            (canMergeBack ? '<button class="button button-secondary" id="merge-back-button" data-run-id="' + escapeHtml(run.runId) + '"' + (isJobBusy() ? ' disabled' : '') + '>Merge back</button>' : '') +
+            '<button class="button button-danger" id="delete-run-button" data-run-id="' + escapeHtml(run.runId) + '"' + (state.isDeletingRun || isJobBusy() ? ' disabled' : '') + '>' + deleteLabel + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="grid-two" style="margin-top: 20px;">' +
+        '<div class="panel">' +
+          '<dl class="keyvals">' +
+            '<dt>Created</dt><dd>' + escapeHtml(formatDate(run.createdAt)) + '</dd>' +
+            '<dt>Branch</dt><dd class="mono">' + escapeHtml(run.branchName) + '</dd>' +
+            '<dt>Base</dt><dd class="mono">' + escapeHtml(run.baseBranch) + '</dd>' +
+            '<dt>Worktree</dt><dd class="mono">' + escapeHtml(detail.worktreePath) + '</dd>' +
+            '<dt>State file</dt><dd class="mono">' + escapeHtml(detail.stateFilePath) + '</dd>' +
+            '<dt>Ticket file</dt><dd class="mono">' + escapeHtml(detail.ticketFilePath) + '</dd>' +
+          '</dl>' +
+        '</div>' +
+        '<div class="panel">' +
+          '<dl class="keyvals">' +
+            '<dt>Queue length</dt><dd>' + escapeHtml(run.taskQueueLength) + '</dd>' +
+            '<dt>Artifacts</dt><dd>' + escapeHtml(detail.runFiles.length) + ' files</dd>' +
+            '<dt>Plan</dt><dd>' + escapeHtml(run.planAvailable ? 'present' : 'missing') + '</dd>' +
+            '<dt>Final report</dt><dd>' + escapeHtml(run.finalReportAvailable ? 'present' : 'missing') + '</dd>' +
+            '<dt>Recent events</dt><dd>' + escapeHtml(detail.recentEvents.length) + '</dd>' +
+            '<dt>Recent execs</dt><dd>' + escapeHtml(detail.recentExecs.length) + '</dd>' +
+          '</dl>' +
+        '</div>' +
+      '</div>' +
+    '</section>' +
+    '<section class="grid-two">' +
+      '<div class="artifact-grid">' + renderArtifacts(detail.artifacts) + '</div>' +
+      '<div class="timeline-grid">' + eventsCard + execCard + '</div>' +
+    '</section>' +
+  '</div>';
+}
+
+function renderApp() {
+  if (!state.dashboard || !state.controlPlane) {
+    document.getElementById('app').innerHTML = '<div class="shell-loading"><span class="shell-mark">OTTO</span><p>Loading local control plane...</p></div>';
+    return;
+  }
+
+  const dashboard = state.dashboard;
+  const selectedDetail = state.selectedRunId ? state.detailCache.get(state.selectedRunId) : null;
+  const createLabel = state.isCreatingTicket ? 'Creating...' : 'Create ticket';
+
+  document.getElementById('app').innerHTML = '<div class="app-shell">' +
+    '<aside class="sidebar">' +
+      '<div class="stack">' +
+        '<div>' +
+          '<span class="wordmark">OTTO WEB</span>' +
+          '<h1 class="title">Local control plane</h1>' +
+          '<p class="subtle">The server owns Otto jobs and prompt resolution. The browser is the operator surface.</p>' +
+        '</div>' +
+        '<div class="summary-grid">' +
+          '<article><p class="eyebrow">Runs</p><div class="metric mono">' + dashboard.runCounts.total + '</div></article>' +
+          '<article><p class="eyebrow">Active</p><div class="metric mono">' + dashboard.runCounts.active + '</div></article>' +
+          '<article><p class="eyebrow">Tickets</p><div class="metric mono">' + dashboard.ticketsCount + '</div></article>' +
+          '<article><p class="eyebrow">Runner</p><div class="metric mono" style="font-size:18px;">' + escapeHtml(dashboard.defaultRunnerId || 'n/a') + '</div></article>' +
+        '</div>' +
+        '<div class="panel stack">' +
+          '<div class="toolbar">' +
+            '<div><p class="eyebrow">Repository</p><p class="mono">' + escapeHtml(dashboard.repoPath) + '</p></div>' +
+            '<button class="button" id="refresh-button">Refresh</button>' +
+          '</div>' +
+          '<p class="subtle">Config: <span class="mono">' + escapeHtml(dashboard.configPath) + '</span></p>' +
+          '<div class="detail-badges">' +
+            '<span class="badge">onboarding ' + escapeHtml(dashboard.onboardingStatus || 'missing') + '</span>' +
+            '<span class="badge">subagents ' + escapeHtml(dashboard.subagentsEnabled ? 'enabled' : 'disabled') + '</span>' +
+          '</div>' +
+        '</div>' +
+        renderJobStatus() +
+        '<div class="panel stack">' +
+          '<div><p class="eyebrow">Create ticket</p><p class="subtle">Quick browser action routed through the shared core service layer.</p></div>' +
+          '<textarea id="ticket-draft" class="text-input" rows="5" placeholder="Describe the work you want Otto to tackle.">' + escapeHtml(state.ticketDraft) + '</textarea>' +
+          '<button class="button button-primary" id="create-ticket-button"' + (state.isCreatingTicket || isJobBusy() ? ' disabled' : '') + '>' + createLabel + '</button>' +
+        '</div>' +
+        '<div class="panel stack">' +
+          '<div><p class="eyebrow">Tickets</p><p class="subtle">Start browser-driven runs directly from the inventory.</p></div>' +
+          renderTicketList(dashboard.tickets) +
+        '</div>' +
+      '</div>' +
+      renderRunList(dashboard.runs) +
+    '</aside>' +
+    '<main class="main">' + renderDetail(selectedDetail) + '</main>' +
+  '</div>';
+
+  document.querySelectorAll('[data-run-id]').forEach((element) => {
+    element.addEventListener('click', () => {
+      const runId = element.getAttribute('data-run-id');
+      if (!runId || state.isDeletingRun) return;
+      state.selectedRunId = runId;
+      void loadSelectedRun();
+    });
+  });
+
+  document.querySelectorAll('.ticket-start-button').forEach((element) => {
+    element.addEventListener('click', () => {
+      const ticketId = element.getAttribute('data-ticket-id');
+      if (!ticketId) return;
+      void startRun(ticketId);
+    });
+  });
+
+  document.querySelectorAll('.prompt-confirm-button').forEach((element) => {
+    element.addEventListener('click', () => {
+      const promptId = element.getAttribute('data-prompt-id');
+      const value = element.getAttribute('data-value');
+      if (!promptId) return;
+      void submitPrompt(promptId, value === 'true');
+    });
+  });
+
+  document.querySelectorAll('.prompt-select-button').forEach((element) => {
+    element.addEventListener('click', () => {
+      const promptId = element.getAttribute('data-prompt-id');
+      const choice = element.getAttribute('data-choice');
+      if (!promptId || choice == null) return;
+      void submitPrompt(promptId, choice);
+    });
+  });
+`;

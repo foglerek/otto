@@ -5,7 +5,9 @@ import process from "node:process";
 import { UI_WEB_APP_SCRIPT, UI_WEB_STYLES, renderUiWebDocument } from "@otto/ui-web";
 
 import { createManagedTicket, deleteManagedRun, listManagedTickets } from "../services/actions.js";
+import { mergeBackManagedRun, resumeManagedRun, startManagedRun } from "../services/run-actions.js";
 import { loadWebDashboardData, loadWebRunDetailData } from "../services/web.js";
+import { createOttoWebControlPlane } from "./control-plane.js";
 
 export interface OttoWebServerHandle {
   url: string;
@@ -56,7 +58,183 @@ function openBrowser(url: string): void {
   }
 }
 
+function serveStaticAsset(pathname: string, res: http.ServerResponse): boolean {
+  if (pathname === "/") {
+    writeResponse(res, 200, renderUiWebDocument(), "text/html; charset=utf-8");
+    return true;
+  }
+
+  if (pathname === "/styles.css") {
+    writeResponse(res, 200, UI_WEB_STYLES, "text/css; charset=utf-8");
+    return true;
+  }
+
+  if (pathname === "/app.js") {
+    writeResponse(res, 200, UI_WEB_APP_SCRIPT, "text/javascript; charset=utf-8");
+    return true;
+  }
+
+  return false;
+}
+
+async function handleSimpleApiRoutes(args: {
+  cwd: string;
+  pathname: string;
+  method: string;
+  res: http.ServerResponse;
+  controlPlane: ReturnType<typeof createOttoWebControlPlane>;
+  req: http.IncomingMessage;
+}): Promise<boolean> {
+  if (args.pathname === "/api/status") {
+    writeJson(args.res, 200, await loadWebDashboardData(args.cwd));
+    return true;
+  }
+
+  if (args.pathname === "/api/control-plane" && args.method === "GET") {
+    writeJson(args.res, 200, args.controlPlane.getSnapshot());
+    return true;
+  }
+
+  if (args.pathname === "/api/tickets" && args.method === "GET") {
+    writeJson(args.res, 200, await listManagedTickets(args.cwd));
+    return true;
+  }
+
+  if (args.pathname === "/api/tickets/create" && args.method === "POST") {
+    const body = (await readJsonBody(args.req)) as { ticketText?: unknown };
+    const ticketText = typeof body.ticketText === "string" ? body.ticketText : "";
+    writeJson(args.res, 200, await createManagedTicket({ cwd: args.cwd, ticketText }));
+    return true;
+  }
+
+  if (args.pathname === "/api/runs") {
+    const dashboard = await loadWebDashboardData(args.cwd);
+    writeJson(args.res, 200, dashboard.runs);
+    return true;
+  }
+
+  if (args.pathname === "/healthz") {
+    writeJson(args.res, 200, { ok: true });
+    return true;
+  }
+
+  return false;
+}
+
+async function handleRunMutationRoutes(args: {
+  cwd: string;
+  pathname: string;
+  method: string;
+  req: http.IncomingMessage;
+  res: http.ServerResponse;
+  controlPlane: ReturnType<typeof createOttoWebControlPlane>;
+}): Promise<boolean> {
+  if (args.pathname === "/api/runs/start" && args.method === "POST") {
+    const body = (await readJsonBody(args.req)) as { ticketId?: unknown };
+    const ticketId = typeof body.ticketId === "string" ? body.ticketId : "";
+    const job = await args.controlPlane.startJob({
+      kind: "start",
+      runId: ticketId,
+      run: async (jobSnapshot) =>
+        await startManagedRun({
+          cwd: args.cwd,
+          ticketId,
+          prompt: args.controlPlane.createPromptAdapter({
+            jobId: jobSnapshot.id,
+            runId: ticketId,
+          }),
+        }),
+    });
+    writeJson(args.res, 200, job);
+    return true;
+  }
+
+  const deleteRunMatch = args.pathname.match(/^\/api\/runs\/([^/]+)\/delete$/);
+  if (deleteRunMatch && args.method === "POST") {
+    writeJson(args.res, 200, await deleteManagedRun({
+      cwd: args.cwd,
+      runId: decodeURIComponent(deleteRunMatch[1]),
+    }));
+    return true;
+  }
+
+  const resumeRunMatch = args.pathname.match(/^\/api\/runs\/([^/]+)\/resume$/);
+  if (resumeRunMatch && args.method === "POST") {
+    const runId = decodeURIComponent(resumeRunMatch[1]);
+    const job = await args.controlPlane.startJob({
+      kind: "resume",
+      runId,
+      run: async (jobSnapshot) =>
+        await resumeManagedRun({
+          cwd: args.cwd,
+          runId,
+          prompt: args.controlPlane.createPromptAdapter({
+            jobId: jobSnapshot.id,
+            runId,
+          }),
+        }),
+    });
+    writeJson(args.res, 200, job);
+    return true;
+  }
+
+  const mergeBackMatch = args.pathname.match(/^\/api\/runs\/([^/]+)\/merge-back$/);
+  if (mergeBackMatch && args.method === "POST") {
+    const runId = decodeURIComponent(mergeBackMatch[1]);
+    const job = await args.controlPlane.startJob({
+      kind: "merge-back",
+      runId,
+      run: async (jobSnapshot) =>
+        await mergeBackManagedRun({
+          cwd: args.cwd,
+          runId,
+          prompt: args.controlPlane.createPromptAdapter({
+            jobId: jobSnapshot.id,
+            runId,
+          }),
+        }),
+    });
+    writeJson(args.res, 200, job);
+    return true;
+  }
+
+  return false;
+}
+
+async function handleDynamicReadRoutes(args: {
+  cwd: string;
+  pathname: string;
+  method: string;
+  req: http.IncomingMessage;
+  res: http.ServerResponse;
+  controlPlane: ReturnType<typeof createOttoWebControlPlane>;
+}): Promise<boolean> {
+  const runMatch = args.pathname.match(/^\/api\/runs\/([^/]+)$/);
+  if (runMatch) {
+    writeJson(args.res, 200, await loadWebRunDetailData({
+      cwd: args.cwd,
+      runId: decodeURIComponent(runMatch[1]),
+    }));
+    return true;
+  }
+
+  const promptMatch = args.pathname.match(/^\/api\/prompts\/([^/]+)\/respond$/);
+  if (promptMatch && args.method === "POST") {
+    const body = (await readJsonBody(args.req)) as { value?: unknown };
+    args.controlPlane.respondToPrompt({
+      promptId: decodeURIComponent(promptMatch[1]),
+      value: body.value,
+    });
+    writeJson(args.res, 200, { ok: true });
+    return true;
+  }
+
+  return false;
+}
+
 async function createHttpServer(cwd: string): Promise<http.Server> {
+  const controlPlane = createOttoWebControlPlane();
+
   return http.createServer(async (req, res) => {
     try {
       if (!req.url) {
@@ -66,65 +244,30 @@ async function createHttpServer(cwd: string): Promise<http.Server> {
 
       const requestUrl = new URL(req.url, "http://127.0.0.1");
       const pathname = requestUrl.pathname;
+      const method = req.method ?? "GET";
 
-      if (pathname === "/") {
-        writeResponse(res, 200, renderUiWebDocument(), "text/html; charset=utf-8");
+      if (serveStaticAsset(pathname, res)) {
         return;
       }
 
-      if (pathname === "/styles.css") {
-        writeResponse(res, 200, UI_WEB_STYLES, "text/css; charset=utf-8");
+      const routeArgs = {
+        cwd,
+        pathname,
+        method,
+        req,
+        res,
+        controlPlane,
+      };
+
+      if (await handleSimpleApiRoutes(routeArgs)) {
         return;
       }
 
-      if (pathname === "/app.js") {
-        writeResponse(res, 200, UI_WEB_APP_SCRIPT, "text/javascript; charset=utf-8");
+      if (await handleRunMutationRoutes(routeArgs)) {
         return;
       }
 
-      if (pathname === "/api/status") {
-        writeJson(res, 200, await loadWebDashboardData(cwd));
-        return;
-      }
-
-      if (pathname === "/api/tickets" && req.method === "GET") {
-        writeJson(res, 200, await listManagedTickets(cwd));
-        return;
-      }
-
-      if (pathname === "/api/tickets/create" && req.method === "POST") {
-        const body = (await readJsonBody(req)) as { ticketText?: unknown };
-        const ticketText = typeof body.ticketText === "string" ? body.ticketText : "";
-        writeJson(res, 200, await createManagedTicket({ cwd, ticketText }));
-        return;
-      }
-
-      if (pathname === "/api/runs") {
-        const dashboard = await loadWebDashboardData(cwd);
-        writeJson(res, 200, dashboard.runs);
-        return;
-      }
-
-      const runMatch = pathname.match(/^\/api\/runs\/([^/]+)$/);
-      if (runMatch) {
-        writeJson(res, 200, await loadWebRunDetailData({
-          cwd,
-          runId: decodeURIComponent(runMatch[1]),
-        }));
-        return;
-      }
-
-      const deleteRunMatch = pathname.match(/^\/api\/runs\/([^/]+)\/delete$/);
-      if (deleteRunMatch && req.method === "POST") {
-        writeJson(res, 200, await deleteManagedRun({
-          cwd,
-          runId: decodeURIComponent(deleteRunMatch[1]),
-        }));
-        return;
-      }
-
-      if (pathname === "/healthz") {
-        writeJson(res, 200, { ok: true });
+      if (await handleDynamicReadRoutes(routeArgs)) {
         return;
       }
 
