@@ -11,6 +11,7 @@ import {
   reportExecStartToTerminal,
   reportRunEventToTerminal,
 } from "../run-progress.js";
+import { maybeRunPostCleanupMergeBack } from "../post-run-merge-back.js";
 import { loadConfigFromCwd, getPromptAdapter } from "../config.js";
 import { hasUsableWorkflowRunners } from "../runner-gating.js";
 import { acquireRunLock, releaseRunLock, resolveStateFilePath } from "./common.js";
@@ -88,6 +89,10 @@ export async function handleResumeCommand(args: string[]): Promise<void> {
       onExecStart: reportExecStartToTerminal,
       onExecEvent: reportExecEventToTerminal,
     });
+    const mergeBack =
+      result.stoppedAtPhase === "cleanup"
+        ? await maybeRunPostCleanupMergeBack({ state, config, prompt })
+        : null;
     output(
       {
         action: "resume",
@@ -95,12 +100,14 @@ export async function handleResumeCommand(args: string[]): Promise<void> {
         stoppedAtPhase: result.stoppedAtPhase,
         planFilePath: result.planFilePath,
         finalReportPath: result.finalReportPath,
+        mergeBack,
       },
       [
         `Run stopped at phase: ${result.stoppedAtPhase}`,
         result.stoppedAtPhase === "cleanup"
           ? `Final report: ${result.finalReportPath}`
           : `Plan file: ${result.planFilePath}`,
+        ...(mergeBack ? [`Merge-back: ${mergeBack.message}`] : []),
         "",
       ],
     );

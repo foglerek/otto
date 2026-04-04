@@ -36,3 +36,4 @@ Current status:
 
 - This remains a config contract + onboarding surface.
 - Runtime orchestration for cross-task parallel loops is not implemented yet.
+- Concrete runtime prerequisites and integration points are mapped in `docs/subagent-runtime-plan.md`.
