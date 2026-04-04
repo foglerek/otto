@@ -44,6 +44,10 @@ export interface OttoWebDashboardData {
   subagentsEnabled: boolean;
   onboardingStatus: string | null;
   ticketsCount: number;
+  tickets: Array<{
+    ticketId: string;
+    hasRun: boolean;
+  }>;
   runCounts: {
     total: number;
     active: number;
@@ -218,6 +222,7 @@ export async function loadWebDashboardData(cwd: string): Promise<OttoWebDashboar
     listRuns({ artifactRootDir: context.artifactRootDir }),
     readOptionalJson(path.join(context.artifactRootDir, "states", "onboarding.json")),
   ]);
+  const runIds = new Set(runs.map((run) => run.state.runId));
 
   const summaries = await Promise.all(
     runs.map(async (run) => {
@@ -243,6 +248,10 @@ export async function loadWebDashboardData(cwd: string): Promise<OttoWebDashboar
     subagentsEnabled: context.config.subagents?.enabled === true,
     onboardingStatus: typeof onboarding?.status === "string" ? onboarding.status : null,
     ticketsCount: tickets.length,
+    tickets: tickets.map((ticketId) => ({
+      ticketId,
+      hasRun: runIds.has(ticketId),
+    })),
     runCounts: {
       total: summaries.length,
       active,

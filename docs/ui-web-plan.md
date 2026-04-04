@@ -237,6 +237,12 @@ Exit criteria:
 - delete run
 - merge back
 
+Current progress:
+
+- `create ticket` is now wired through the browser to shared core services.
+- `delete run` is now wired through the browser to shared core services.
+- `ingest`, `start`, `resume`, and `merge back` remain pending because the next safe slice needs prompt-bridge and long-running action coordination.
+
 Exit criteria:
 
 - operator can perform the standard run lifecycle from the browser
@@ -294,3 +300,16 @@ Start with Phase 1 plus the service extraction groundwork:
 4. render artifacts and live-updating event timelines from `.otto/`
 
 That delivers immediate UX value before the prompt bridge and action workflows land.
+
+## Current Uncertainty Boundary
+
+The next browser actions are no longer just CRUD-style calls.
+
+- `start`, `resume`, and `merge back` can trigger prompt-heavy or long-running workflows.
+- A robust browser implementation now needs job lifecycle handling plus the browser-backed `OttoPromptAdapter` bridge.
+
+That makes the next logical slice:
+
+1. long-running action/job coordination for browser-triggered workflows
+2. browser prompt inbox / prompt resolution transport
+3. then browser `start` / `resume` / `merge-back` actions on top of that substrate

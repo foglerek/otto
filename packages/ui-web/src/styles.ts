@@ -304,6 +304,12 @@ textarea {
   gap: 12px;
 }
 
+.detail-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -318,9 +324,80 @@ textarea {
   white-space: nowrap;
 }
 
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .button:hover {
   border-color: rgba(88, 166, 255, 0.28);
   background: rgba(88, 166, 255, 0.08);
+}
+
+.button-primary {
+  border-color: rgba(88, 166, 255, 0.3);
+  background: linear-gradient(180deg, rgba(88, 166, 255, 0.22), rgba(88, 166, 255, 0.14));
+}
+
+.button-danger {
+  border-color: rgba(242, 109, 120, 0.24);
+  color: #ffd6da;
+}
+
+.button-danger:hover {
+  border-color: rgba(242, 109, 120, 0.32);
+  background: rgba(242, 109, 120, 0.1);
+}
+
+.text-input {
+  width: 100%;
+  min-height: 132px;
+  resize: vertical;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(7, 11, 17, 0.6);
+  color: var(--text);
+  outline: none;
+}
+
+.text-input:focus {
+  border-color: rgba(88, 166, 255, 0.32);
+}
+
+.ticket-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ticket-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(202, 214, 229, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.action-banner {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.action-banner.success {
+  border-color: rgba(89, 197, 138, 0.22);
+  color: #c8f1d8;
+  background: rgba(89, 197, 138, 0.08);
+}
+
+.action-banner.error {
+  border-color: rgba(242, 109, 120, 0.24);
+  color: #ffd8dc;
+  background: rgba(242, 109, 120, 0.1);
 }
 
 .footer-note {

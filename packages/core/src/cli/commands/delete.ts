@@ -1,16 +1,19 @@
-import fs from "node:fs/promises";
-
 import { ensureRepoSetup } from "../../repo-setup.js";
 import { listRuns } from "../../runs/listing.js";
-import { loadOttoState } from "../../state.js";
-import { runOttoCleanup } from "../../cleanup.js";
-import { createNodeExec } from "../../exec.js";
-import { killOttoProcess } from "../../runs/kill.js";
-import { isRunLockStale, readRunLockFile } from "../../locks/run-lock.js";
+import { deleteManagedRun } from "../../services/actions.js";
 import { output, fail } from "../output.js";
-import { loadConfigFromCwd, getPromptAdapter } from "../config.js";
+import { loadConfigFromCwd } from "../config.js";
 import { resolveStateFilePath } from "./common.js";
 import { pathExists } from "../utils.js";
+
+function resolveRunIdForDelete(arg: string, stateFilePath: string): string {
+  if (!arg.includes("/") && !arg.includes("\\") && !arg.endsWith(".json")) {
+    return arg;
+  }
+
+  const name = stateFilePath.split(/[\\/]/).pop() ?? "";
+  return name.replace(/^run-/, "").replace(/\.json$/, "");
+}
 
 export async function handleDeleteCommand(args: string[]): Promise<void> {
   const { config } = await loadConfigFromCwd();
@@ -62,40 +65,20 @@ export async function handleDeleteCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const state = await loadOttoState(stateFilePath);
-
-  const lock = await readRunLockFile(state.lockFilePath);
-  if (lock) {
-    const stale = await isRunLockStale({ lock });
-    if (!stale) {
-      const exec = createNodeExec();
-      await killOttoProcess({ pid: lock.pid, exec, cwd: state.mainRepoPath });
-    }
-    await fs.rm(state.lockFilePath, { force: true });
-  }
-
-  const prompt = await getPromptAdapter(config);
-  await runOttoCleanup({
-    state,
-    config,
-    prompt,
-    force: true,
-    deleteBranch: true,
-    deleteArtifacts: true,
+  const result = await deleteManagedRun({
+    cwd: process.cwd(),
+    runId: resolveRunIdForDelete(arg, stateFilePath),
   });
-
-  await fs.rm(state.stateFilePath, { force: true });
-  await fs.rm(state.lockFilePath, { force: true });
 
   output(
     {
       action: "delete",
-      runId: state.runId,
-      preservedTicketPath: state.ticket.filePath,
+      runId: result.runId,
+      preservedTicketPath: result.preservedTicketPath,
     },
     [
-      `Deleted run: ${state.runId}`,
-      `Preserved ticket: ${state.ticket.filePath}`,
+      `Deleted run: ${result.runId}`,
+      `Preserved ticket: ${result.preservedTicketPath}`,
       "",
     ],
   );

@@ -2,6 +2,11 @@ export const UI_WEB_APP_SCRIPT = `const state = {
   dashboard: null,
   selectedRunId: null,
   detailCache: new Map(),
+  ticketDraft: "",
+  actionMessage: "",
+  actionError: "",
+  isCreatingTicket: false,
+  isDeletingRun: false,
 };
 
 function escapeHtml(value) {
@@ -13,10 +18,25 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, { headers: { accept: "application/json" } });
+async function fetchJson(url, options) {
+  const response = await fetch(url, {
+    headers: { accept: "application/json" },
+    ...(options || {}),
+  });
   if (!response.ok) {
-    throw new Error(await response.text() || ("Request failed: " + response.status));
+    let message = "Request failed: " + response.status;
+    try {
+      const data = await response.json();
+      if (data && typeof data.error === "string") {
+        message = data.error;
+      }
+    } catch {
+      const text = await response.text();
+      if (text) {
+        message = text;
+      }
+    }
+    throw new Error(message);
   }
   return await response.json();
 }
@@ -44,6 +64,11 @@ function ensureSelectedRun() {
   }
 }
 
+function clearActionState() {
+  state.actionMessage = "";
+  state.actionError = "";
+}
+
 function renderRunList(runs) {
   if (runs.length === 0) {
     return '<div class="panel"><p class="subtle">No Otto runs found yet.</p></div>';
@@ -63,6 +88,20 @@ function renderRunList(runs) {
         waiting +
       '</div>' +
     '</button>';
+  }).join('') + '</div>';
+}
+
+function renderTicketList(tickets) {
+  if (!tickets.length) {
+    return '<p class="subtle">No managed tickets yet.</p>';
+  }
+  return '<div class="ticket-list">' + tickets.map((ticket) => {
+    return '<div class="ticket-row">' +
+      '<div>' +
+        '<strong class="mono">' + escapeHtml(ticket.ticketId) + '</strong>' +
+      '</div>' +
+      '<span class="badge">' + escapeHtml(ticket.hasRun ? 'started' : 'ready') + '</span>' +
+    '</div>';
   }).join('') + '</div>';
 }
 
@@ -96,6 +135,16 @@ function renderJsonLines(title, items, formatter) {
   '</article>';
 }
 
+function renderActionStatus() {
+  if (state.actionError) {
+    return '<div class="action-banner error">' + escapeHtml(state.actionError) + '</div>';
+  }
+  if (state.actionMessage) {
+    return '<div class="action-banner success">' + escapeHtml(state.actionMessage) + '</div>';
+  }
+  return '';
+}
+
 function renderDetail(detail) {
   if (!detail) {
     return '<div class="empty-state"><div><span class="wordmark">OTTO</span><p>Select a run to inspect its artifacts and telemetry.</p></div></div>';
@@ -108,8 +157,10 @@ function renderDetail(detail) {
   const execCard = renderJsonLines('Exec events', detail.recentExecs, (entry) => {
     return '[' + entry.at + '] ' + entry.label + ' exit=' + entry.exitCode + ' timedOut=' + entry.timedOut + ' durationMs=' + entry.durationMs;
   });
+  const deleteLabel = state.isDeletingRun ? 'Deleting...' : 'Delete run';
 
   return '<div class="stack">' +
+    renderActionStatus() +
     '<section class="header-block">' +
       '<div class="toolbar">' +
         '<div>' +
@@ -117,10 +168,13 @@ function renderDetail(detail) {
           '<h1 class="title">' + escapeHtml(run.ticketSlug || run.runId) + '</h1>' +
           '<p class="subtle mono">' + escapeHtml(run.runId) + '</p>' +
         '</div>' +
-        '<div class="detail-badges">' +
-          statusBadge(run.processStatus) +
-          '<span class="badge">phase ' + escapeHtml(run.phase || 'unknown') + '</span>' +
-          (run.needsUserInput ? '<span class="badge waiting">awaiting input</span>' : '') +
+        '<div class="detail-actions">' +
+          '<div class="detail-badges">' +
+            statusBadge(run.processStatus) +
+            '<span class="badge">phase ' + escapeHtml(run.phase || 'unknown') + '</span>' +
+            (run.needsUserInput ? '<span class="badge waiting">awaiting input</span>' : '') +
+          '</div>' +
+          '<button class="button button-danger" id="delete-run-button" data-run-id="' + escapeHtml(run.runId) + '"' + (state.isDeletingRun ? ' disabled' : '') + '>' + deleteLabel + '</button>' +
         '</div>' +
       '</div>' +
       '<div class="grid-two" style="margin-top: 20px;">' +
@@ -161,6 +215,7 @@ function renderApp() {
 
   const dashboard = state.dashboard;
   const selectedDetail = state.selectedRunId ? state.detailCache.get(state.selectedRunId) : null;
+  const createLabel = state.isCreatingTicket ? 'Creating...' : 'Create ticket';
 
   document.getElementById('app').innerHTML = '<div class="app-shell">' +
     '<aside class="sidebar">' +
@@ -168,7 +223,7 @@ function renderApp() {
         '<div>' +
           '<span class="wordmark">OTTO WEB</span>' +
           '<h1 class="title">Local control plane</h1>' +
-          '<p class="subtle">Read-only Phase 1 surface for run visibility, artifacts, and live telemetry.</p>' +
+          '<p class="subtle">Read-only run visibility is live. Initial browser actions now cover ticket creation and run deletion.</p>' +
         '</div>' +
         '<div class="summary-grid">' +
           '<article><p class="eyebrow">Runs</p><div class="metric mono">' + dashboard.runCounts.total + '</div></article>' +
@@ -187,6 +242,15 @@ function renderApp() {
             '<span class="badge">subagents ' + escapeHtml(dashboard.subagentsEnabled ? 'enabled' : 'disabled') + '</span>' +
           '</div>' +
         '</div>' +
+        '<div class="panel stack">' +
+          '<div><p class="eyebrow">Create ticket</p><p class="subtle">Browser-first ticket creation now calls the shared core service layer.</p></div>' +
+          '<textarea id="ticket-draft" class="text-input" rows="5" placeholder="Describe the work you want Otto to tackle.">' + escapeHtml(state.ticketDraft) + '</textarea>' +
+          '<button class="button button-primary" id="create-ticket-button"' + (state.isCreatingTicket ? ' disabled' : '') + '>' + createLabel + '</button>' +
+        '</div>' +
+        '<div class="panel stack">' +
+          '<div><p class="eyebrow">Tickets</p><p class="subtle">Managed ticket inventory and readiness.</p></div>' +
+          renderTicketList(dashboard.tickets) +
+        '</div>' +
       '</div>' +
       renderRunList(dashboard.runs) +
     '</aside>' +
@@ -196,7 +260,7 @@ function renderApp() {
   document.querySelectorAll('[data-run-id]').forEach((element) => {
     element.addEventListener('click', () => {
       const runId = element.getAttribute('data-run-id');
-      if (!runId) return;
+      if (!runId || state.isDeletingRun) return;
       state.selectedRunId = runId;
       void loadSelectedRun();
     });
@@ -206,6 +270,29 @@ function renderApp() {
   if (refresh) {
     refresh.addEventListener('click', () => {
       void refreshAll();
+    });
+  }
+
+  const ticketDraft = document.getElementById('ticket-draft');
+  if (ticketDraft) {
+    ticketDraft.addEventListener('input', (event) => {
+      state.ticketDraft = event.target.value;
+    });
+  }
+
+  const createButton = document.getElementById('create-ticket-button');
+  if (createButton) {
+    createButton.addEventListener('click', () => {
+      void createTicket();
+    });
+  }
+
+  const deleteButton = document.getElementById('delete-run-button');
+  if (deleteButton) {
+    deleteButton.addEventListener('click', () => {
+      const runId = deleteButton.getAttribute('data-run-id');
+      if (!runId) return;
+      void deleteRun(runId);
     });
   }
 }
@@ -232,6 +319,66 @@ async function refreshAll() {
     await loadSelectedRun();
   } catch (error) {
     document.getElementById('app').innerHTML = '<div class="error-state"><div><span class="wordmark">OTTO</span><p>' + escapeHtml(error.message || String(error)) + '</p></div></div>';
+  }
+}
+
+async function createTicket() {
+  const ticketText = state.ticketDraft.trim();
+  if (!ticketText || state.isCreatingTicket) {
+    return;
+  }
+
+  state.isCreatingTicket = true;
+  clearActionState();
+  renderApp();
+
+  try {
+    const result = await fetchJson('/api/tickets/create', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ ticketText }),
+    });
+    state.ticketDraft = '';
+    state.actionMessage = 'Created ticket ' + result.ticketId + '.';
+    await refreshAll();
+  } catch (error) {
+    state.actionError = error.message || String(error);
+    renderApp();
+  } finally {
+    state.isCreatingTicket = false;
+    renderApp();
+  }
+}
+
+async function deleteRun(runId) {
+  if (state.isDeletingRun) {
+    return;
+  }
+
+  state.isDeletingRun = true;
+  clearActionState();
+  renderApp();
+
+  try {
+    const result = await fetchJson('/api/runs/' + encodeURIComponent(runId) + '/delete', {
+      method: 'POST',
+      headers: { accept: 'application/json' },
+    });
+    state.detailCache.delete(runId);
+    if (state.selectedRunId === runId) {
+      state.selectedRunId = null;
+    }
+    state.actionMessage = 'Deleted run ' + result.runId + '.';
+    await refreshAll();
+  } catch (error) {
+    state.actionError = error.message || String(error);
+    renderApp();
+  } finally {
+    state.isDeletingRun = false;
+    renderApp();
   }
 }
 

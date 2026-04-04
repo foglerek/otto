@@ -12,4 +12,6 @@ test("ui-web exports document and static assets", () => {
   assert.match(html, /\/styles\.css/);
   assert.match(mod.UI_WEB_STYLES, /OTTO WEB|--bg:/);
   assert.match(mod.UI_WEB_APP_SCRIPT, /\/api\/status/);
+  assert.match(mod.UI_WEB_APP_SCRIPT, /\/api\/tickets\/create/);
+  assert.match(mod.UI_WEB_APP_SCRIPT, /\/delete/);
 });

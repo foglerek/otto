@@ -7,6 +7,7 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const web = await jiti(new URL("../src/services/web.ts", import.meta.url).href);
+const actions = await jiti(new URL("../src/services/actions.ts", import.meta.url).href);
 
 async function makeRepo() {
   const repo = await fs.mkdtemp(path.join(process.cwd(), ".tmp-otto-web-"));
@@ -14,7 +15,6 @@ async function makeRepo() {
     path.join(repo, "otto.config.ts"),
     [
       'import { defineOttoConfig } from "@otto/config";',
-      'import { createEchoRunner } from "@otto/runner-echo";',
       "",
       "export default defineOttoConfig({",
       '  worktree: {',
@@ -27,7 +27,16 @@ async function makeRepo() {
       '    },',
       '    afterCreate: async () => {},',
       '  },',
-      '  runners: { default: createEchoRunner() },',
+      '  runners: {',
+      '    default: {',
+      '      id: "test-lead",',
+      '      kind: "test",',
+      '      run: async () => ({',
+      '        success: true,',
+      '        outputText: "<SLUG>agent web ticket</SLUG>\\n<CONTENT># Ticket\\n\\nCreated from the browser.\\n</CONTENT>",',
+      '      }),',
+      '    },',
+      '  },',
       '  subagents: { enabled: true, maxConcurrent: 2 },',
       "});",
       "",
@@ -113,12 +122,20 @@ test("web services summarize dashboard and run details", async () => {
 
   const dashboard = await web.loadWebDashboardData(repo);
   assert.equal(dashboard.repoPath, repo);
-  assert.equal(dashboard.defaultRunnerId, "echo");
+  assert.equal(dashboard.defaultRunnerId, "test-lead");
   assert.equal(dashboard.subagentsEnabled, true);
   assert.equal(dashboard.ticketsCount, 1);
+  assert.equal(dashboard.tickets[0].ticketId, runId);
   assert.equal(dashboard.runCounts.total, 1);
   assert.equal(dashboard.runs[0].planAvailable, true);
   assert.equal(dashboard.runs[0].finalReportAvailable, true);
+
+  const created = await actions.createManagedTicket({
+    cwd: repo,
+    ticketText: "Add a browser-native ticket flow.",
+  });
+  assert.match(created.ticketId, /^\d{4}-\d{2}-\d{2}-agent-web-ticket$/);
+  await assert.doesNotReject(fs.stat(created.filePath));
 
   const detail = await web.loadWebRunDetailData({ cwd: repo, runId });
   assert.equal(detail.summary.runId, runId);
@@ -128,6 +145,10 @@ test("web services summarize dashboard and run details", async () => {
   assert.match(detail.artifacts[3].content, /Read-only web slice shipped/);
   assert.equal(detail.recentEvents.length, 2);
   assert.equal(detail.recentExecs.length, 1);
+
+  const deleted = await actions.deleteManagedRun({ cwd: repo, runId });
+  assert.equal(deleted.runId, runId);
+  await assert.rejects(fs.stat(stateFilePath));
 
   await fs.rm(repo, { recursive: true, force: true });
 });

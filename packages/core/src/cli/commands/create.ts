@@ -1,8 +1,5 @@
-import { ensureRepoSetup } from "../../repo-setup.js";
-import { output, fail, failNoRunner } from "../output.js";
-import { loadConfigFromCwd } from "../config.js";
-import { getProjectLeadRunner } from "../runner-gating.js";
-import { runTicketCreate } from "./tickets.js";
+import { createManagedTicket } from "../../services/actions.js";
+import { output, fail } from "../output.js";
 
 export async function handleCreateCommand(args: string[]): Promise<void> {
   const ticketText = args.join(" ").trim();
@@ -11,18 +8,8 @@ export async function handleCreateCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const { config } = await loadConfigFromCwd();
-  const runner = getProjectLeadRunner(config);
-  if (!runner) {
-    failNoRunner();
-    return;
-  }
-
-  const repoPath = await config.worktree.adapter.getMainRepoPath(process.cwd());
-  await ensureRepoSetup({ mainRepoPath: repoPath, config });
-  const result = await runTicketCreate({
-    repoPath,
-    runner,
+  const result = await createManagedTicket({
+    cwd: process.cwd(),
     ticketText,
   });
 

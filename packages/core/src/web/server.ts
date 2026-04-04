@@ -4,6 +4,7 @@ import process from "node:process";
 
 import { UI_WEB_APP_SCRIPT, UI_WEB_STYLES, renderUiWebDocument } from "@otto/ui-web";
 
+import { createManagedTicket, deleteManagedRun, listManagedTickets } from "../services/actions.js";
 import { loadWebDashboardData, loadWebRunDetailData } from "../services/web.js";
 
 export interface OttoWebServerHandle {
@@ -23,6 +24,16 @@ function writeResponse(res: http.ServerResponse, status: number, body: string, c
 
 function writeJson(res: http.ServerResponse, status: number, value: unknown): void {
   writeResponse(res, status, JSON.stringify(value), "application/json; charset=utf-8");
+}
+
+async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const text = Buffer.concat(chunks).toString("utf8").trim();
+  if (!text) return {};
+  return JSON.parse(text) as unknown;
 }
 
 function openBrowser(url: string): void {
@@ -76,6 +87,18 @@ async function createHttpServer(cwd: string): Promise<http.Server> {
         return;
       }
 
+      if (pathname === "/api/tickets" && req.method === "GET") {
+        writeJson(res, 200, await listManagedTickets(cwd));
+        return;
+      }
+
+      if (pathname === "/api/tickets/create" && req.method === "POST") {
+        const body = (await readJsonBody(req)) as { ticketText?: unknown };
+        const ticketText = typeof body.ticketText === "string" ? body.ticketText : "";
+        writeJson(res, 200, await createManagedTicket({ cwd, ticketText }));
+        return;
+      }
+
       if (pathname === "/api/runs") {
         const dashboard = await loadWebDashboardData(cwd);
         writeJson(res, 200, dashboard.runs);
@@ -87,6 +110,15 @@ async function createHttpServer(cwd: string): Promise<http.Server> {
         writeJson(res, 200, await loadWebRunDetailData({
           cwd,
           runId: decodeURIComponent(runMatch[1]),
+        }));
+        return;
+      }
+
+      const deleteRunMatch = pathname.match(/^\/api\/runs\/([^/]+)\/delete$/);
+      if (deleteRunMatch && req.method === "POST") {
+        writeJson(res, 200, await deleteManagedRun({
+          cwd,
+          runId: decodeURIComponent(deleteRunMatch[1]),
         }));
         return;
       }
