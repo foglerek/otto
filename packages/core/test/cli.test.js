@@ -30,6 +30,7 @@ test("parseOttoArgs returns command args", () => {
 test("resolveCommandHandler routes known commands", () => {
   assert.equal(typeof cli.resolveCommandHandler("create"), "function");
   assert.equal(typeof cli.resolveCommandHandler("onboarding"), "function");
+  assert.equal(typeof cli.resolveCommandHandler("web"), "function");
   assert.equal(cli.resolveCommandHandler("unknown"), null);
 });
 

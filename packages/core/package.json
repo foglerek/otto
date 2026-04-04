@@ -31,6 +31,7 @@
   "dependencies": {
     "@otto/config": "workspace:*",
     "@otto/ports": "workspace:*",
+    "@otto/ui-web": "workspace:*",
     "@otto/ui-opentui": "workspace:*",
     "jiti": "^2.4.2"
   },

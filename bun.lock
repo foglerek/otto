@@ -54,6 +54,7 @@
         "@otto/config": "workspace:*",
         "@otto/ports": "workspace:*",
         "@otto/ui-opentui": "workspace:*",
+        "@otto/ui-web": "workspace:*",
         "jiti": "^2.4.2",
       },
       "devDependencies": {
@@ -212,6 +213,13 @@
       },
       "devDependencies": {
         "@types/react": "^19.0.10",
+        "typescript": "^5.7.3",
+      },
+    },
+    "packages/ui-web": {
+      "name": "@otto/ui-web",
+      "version": "0.0.0",
+      "devDependencies": {
         "typescript": "^5.7.3",
       },
     },
@@ -408,6 +416,8 @@
     "@otto/runner-opencode-sdk": ["@otto/runner-opencode-sdk@workspace:packages/runner-opencode-sdk"],
 
     "@otto/ui-opentui": ["@otto/ui-opentui@workspace:packages/ui-opentui"],
+
+    "@otto/ui-web": ["@otto/ui-web@workspace:packages/ui-web"],
 
     "@tokenizer/token": ["@tokenizer/token@0.3.0", "", {}, "sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A=="],
 

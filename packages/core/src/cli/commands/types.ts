@@ -8,6 +8,7 @@ export type OttoCommand =
   | "resume"
   | "active"
   | "delete"
+  | "web"
   | "config";
 
 export type CommandHandler = (args: string[]) => Promise<void>;

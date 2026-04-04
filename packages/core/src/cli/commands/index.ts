@@ -8,6 +8,7 @@ import { handleStartCommand } from "./start.js";
 import { handleResumeCommand } from "./resume.js";
 import { handleActiveCommand } from "./active.js";
 import { handleDeleteCommand } from "./delete.js";
+import { handleWebCommand } from "./web.js";
 import { handleConfigCommand } from "./config.js";
 import { printHelp } from "../output.js";
 
@@ -21,6 +22,7 @@ const commandHandlers: Record<OttoCommand, CommandHandler> = {
   resume: handleResumeCommand,
   active: async () => handleActiveCommand(),
   delete: handleDeleteCommand,
+  web: handleWebCommand,
   config: async () => handleConfigCommand(),
 };
 
