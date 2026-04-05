@@ -159,6 +159,8 @@ Current blocker:
 - this likely needs a different implementation shape than the other SDK runners because the natural primitive is session/event subscription rather than a single request returning a stream
 - this is now the main remaining SDK streaming blocker after `claude-sdk`, `codex-sdk`, and `google-genai`
 
+Detailed plan reference: `docs/ag-ui-opencode-sdk-plan.md`
+
 ## Not Worth Doing Yet
 
 - no attempt to unify all provider stream implementations behind a giant shared streaming abstraction before the first runner migrates

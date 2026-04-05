@@ -169,6 +169,7 @@ Near-term validation priority:
 
 Current mapping reference: `docs/ag-ui-runner-mapping.md`
 SDK streaming adoption reference: `docs/ag-ui-sdk-streaming-plan.md`
+OpenCode SDK streaming reference: `docs/ag-ui-opencode-sdk-plan.md`
 
 Short term:
 
