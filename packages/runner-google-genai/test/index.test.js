@@ -171,3 +171,32 @@ test("google genai runner reports unavailable sdk from factory", async () => {
   assert.equal(out.success, false);
   assert.match(out.error ?? "", /genai/i);
 });
+
+test("google genai runner emits AG-UI assistant events", async () => {
+  const events = [];
+  const runner = mod.createGoogleGenAiRunner({
+    clientFactory: async () => ({
+      models: {
+        generateContent: async () => ({ responseId: "gen_live", text: "genai hello" }),
+      },
+    }),
+  });
+
+  await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "Do task",
+    cwd: process.cwd(),
+    exec: { run: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }) },
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[1].delta, "genai hello");
+});

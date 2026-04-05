@@ -141,3 +141,36 @@ test("ollama runner carries timeout metadata", async () => {
   assert.equal(out.success, false);
   assert.equal(out.timedOut, true);
 });
+
+test("ollama runner emits AG-UI assistant events", async () => {
+  const runner = mod.createOllamaRunner();
+  const calls = [];
+  const events = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout: line({ response: "hello ollama" }) + line({ done: true }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "Say hello",
+    cwd: process.cwd(),
+    exec,
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[1].delta, "hello ollama");
+});

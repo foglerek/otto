@@ -217,6 +217,21 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   });
 }
 
+async function emitAssistantText(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  text: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent || !args.text.trim()) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({ type: "TEXT_MESSAGE_START", messageId: args.messageId, role: "assistant", timestamp, rawEvent: args.rawEvent });
+  await args.onEvent({ type: "TEXT_MESSAGE_CONTENT", messageId: args.messageId, delta: args.text, timestamp, rawEvent: args.rawEvent });
+  await args.onEvent({ type: "TEXT_MESSAGE_END", messageId: args.messageId, timestamp, rawEvent: args.rawEvent });
+}
+
 class GoogleGenAiRunner implements OttoRunner {
   readonly kind = "google-genai";
   readonly id = "google-genai";
@@ -292,6 +307,13 @@ class GoogleGenAiRunner implements OttoRunner {
         error: "Google GenAI SDK did not return text output.",
       };
     }
+
+    await emitAssistantText({
+      onEvent: options.onEvent,
+      messageId: `${this.id}-message-1`,
+      text: outputText,
+      rawEvent: response,
+    });
 
     return {
       success: true,

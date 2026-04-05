@@ -213,7 +213,7 @@ Current progress:
 - per-run AG-UI event streams are now a first-class direction for agent/session events, with Otto emitting `ag-ui-events.jsonl` in each run folder and the server exposing `/api/runs/:runId/ag-ui`
 - current AG-UI mapping uses core lifecycle/exec/custom Otto events, and now also captures raw runner-native logs where the runner exposes them
 - current runner-native capture is partial: `claude-code`, `codex-cli`, `opencode-cli`, and `gemini-cli` now forward raw parsed lines into AG-UI `RAW` events; broader runner coverage remains ahead
-- runners now also emit standardized assistant message AG-UI events directly during execution where line-streaming makes that possible (`claude-code`, `codex-cli`, `opencode-cli`, `gemini-cli`)
+- runners now also emit standardized assistant message AG-UI events directly during execution where line-streaming makes that possible (`claude-code`, `codex-cli`, `opencode-cli`, `gemini-cli`) and emit final assistant message AG-UI events across the major non-streaming runners as well (`ollama`, `claude-sdk`, `codex-sdk`, `google-genai`, `opencode-sdk`)
 - the current web UI now subscribes to the selected run's AG-UI stream and renders a basic event feed alongside artifact/detail views
 
 This gives the browser a real-time feel without changing Otto's storage model.

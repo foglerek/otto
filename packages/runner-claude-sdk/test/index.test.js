@@ -137,3 +137,35 @@ test("claude sdk runner returns timed out result", async () => {
   assert.equal(out.timedOut, true);
   assert.match(out.error ?? "", /timed out/i);
 });
+
+test("claude sdk runner emits AG-UI assistant events", async () => {
+  const events = [];
+  const runner = mod.createClaudeSdkRunner({
+    clientFactory: async () => ({
+      messages: {
+        create: async () => ({
+          id: "msg_live",
+          content: [{ type: "text", text: "claude sdk hello" }],
+        }),
+      },
+    }),
+  });
+
+  await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "Do task",
+    cwd: process.cwd(),
+    exec: { run: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }) },
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[1].delta, "claude sdk hello");
+});
