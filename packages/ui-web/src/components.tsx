@@ -147,13 +147,27 @@ export function PromptInbox(props: {
 }
 
 export function AgUiFeed(props: { runId: string; events: AgUiEvent[] }): React.JSX.Element {
+  const hiddenCustomNames = new Set(["otto.exec_start", "otto.exec_result", "otto.run_finished"]);
+  const timelineEvents = props.events.filter((event) => {
+    if (event.type === "RAW") return false;
+    if (event.type === "STEP_STARTED" || event.type === "STEP_FINISHED") return false;
+    if (event.type === "CUSTOM" && hiddenCustomNames.has(event.name || "")) return false;
+    return true;
+  });
+  const debugEvents = props.events.filter((event) => {
+    if (event.type === "RAW") return true;
+    if (event.type === "STEP_STARTED" || event.type === "STEP_FINISHED") return true;
+    if (event.type === "CUSTOM" && hiddenCustomNames.has(event.name || "")) return true;
+    return false;
+  });
+
   return (
     <article className="timeline-card">
       <p className="eyebrow">AG-UI</p>
       <h3>Run event feed</h3>
-      {props.events.length > 0 ? (
+      {timelineEvents.length > 0 ? (
         <div className="prompt-list">
-          {[...props.events].reverse().map((event, index) => {
+          {[...timelineEvents].reverse().map((event, index) => {
             const kind = classifyAgUiEvent(event);
             const summary = summarizeAgUiEvent(props.runId, event);
             return (
@@ -176,6 +190,34 @@ export function AgUiFeed(props: { runId: string; events: AgUiEvent[] }): React.J
       ) : (
         <p className="subtle">No AG-UI events captured yet for this run.</p>
       )}
+      {debugEvents.length > 0 ? (
+        <details className="collapsible-card" style={{ marginTop: 12 }}>
+          <summary className="collapsible-summary">
+            <div>
+              <p className="eyebrow">Debug</p>
+              <p className="debug-summary">{debugEvents.length} raw or low-level command events hidden from the main feed</p>
+            </div>
+            <span className="badge mono collapsible-badge">toggle</span>
+          </summary>
+          <div className="prompt-list collapsible-body">
+            {[...debugEvents].reverse().map((event, index) => {
+              const summary = summarizeAgUiEvent(props.runId, event);
+              return (
+                <div className="prompt-card ag-ui-card ag-ui-card-raw" key={`debug-${event.timestamp || index}-${event.type}-${index}`}>
+                  <div className="detail-topline">
+                    <div>
+                      <p className="eyebrow">{event.type || "EVENT"}</p>
+                      <p className="subtle">{summary.title}</p>
+                    </div>
+                    <span className="badge mono">{event.timestamp ? formatDate(event.timestamp) : "-"}</span>
+                  </div>
+                  {summary.body ? <pre className="prompt-message">{summary.body}</pre> : <p className="footer-note">No body payload.</p>}
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
     </article>
   );
 }

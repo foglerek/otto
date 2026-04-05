@@ -28,49 +28,89 @@ function summarizeMessageEvent(event: AgUiEvent) {
 
 function summarizeToolEvent(event: AgUiEvent) {
   if (event.type === "TOOL_CALL_START") return { title: "Tool started", meta: event.toolCallName || event.toolCallId || "", body: `Tool call started: ${String(event.toolCallName || event.toolCallId || "unknown")}` };
-  if (event.type === "TOOL_CALL_ARGS") return { title: "Tool input", meta: event.toolCallId || "", body: truncateText(String(event.delta || ""), 1200) };
+  if (event.type === "TOOL_CALL_ARGS") return { title: "Tool input", meta: event.toolCallId || "", body: summarizeToolArgs(event.delta) };
   if (event.type === "TOOL_CALL_RESULT") return { title: "Tool result", meta: event.toolCallId || "", body: truncateText(String(event.content || ""), 1200) };
   if (event.type === "TOOL_CALL_END") return { title: "Tool ended", meta: event.toolCallId || "", body: "" };
   return null;
 }
 
+function summarizeToolArgs(delta: unknown): string {
+  if (typeof delta !== "string") {
+    return truncateText(JSON.stringify(delta ?? {}, null, 2), 1200);
+  }
+  try {
+    const parsed = JSON.parse(delta) as unknown;
+    const record = asRecord(parsed);
+    if (!record) {
+      return truncateText(delta, 1200);
+    }
+    const cmd = Array.isArray(record.cmd) ? record.cmd.join(" ") : asString(record.command);
+    const cwd = asString(record.cwd);
+    const input = asRecord(record.input);
+    const inputCommand = input ? asString(input.command) : undefined;
+    if (cmd || inputCommand) {
+      const lines = [cmd || inputCommand || "", cwd ? `cwd: ${cwd}` : ""].filter(Boolean);
+      return truncateText(lines.join("\n"), 1200);
+    }
+    return truncateText(JSON.stringify(record, null, 2), 1200);
+  } catch {
+    return truncateText(delta, 1200);
+  }
+}
+
 function summarizeCustomEvent(event: AgUiEvent) {
-  if (event.type === "CUSTOM" && event.name === "otto.reasoning") {
-    const value = asRecord(event.value);
-    return { title: "Reasoning", meta: "", body: truncateText(asString(value?.text) || JSON.stringify(event.value || {}, null, 2), 1200) };
+  const handlers: Record<string, () => { title: string; meta: string; body: string }> = {
+    "otto.reasoning": () => summarizeReasoningEvent(event),
+    "otto.control_plane": () => summarizeControlPlaneEvent(event),
+    "otto.phase_transition": () => summarizePhaseTransition(event),
+    "otto.phase_entered": () => summarizePhaseEntered(event),
+    "otto.exec_start": () => summarizeExecStart(event),
+    "otto.exec_result": () => summarizeExecResult(event),
+  };
+  if (event.type !== "CUSTOM" || !event.name || !handlers[event.name]) {
+    return null;
   }
-  if (event.type === "CUSTOM" && event.name === "otto.control_plane") {
-    const jobs = Array.isArray(event.value?.jobs) ? event.value.jobs.length : 0;
-    const prompts = Array.isArray(event.value?.prompts) ? event.value.prompts.length : 0;
-    return { title: "Control plane", meta: `jobs ${jobs} / prompts ${prompts}`, body: prompts > 0 ? `Operator input is required for ${prompts} prompt${prompts === 1 ? "" : "s"}.` : `No outstanding prompts. ${jobs} tracked job${jobs === 1 ? "" : "s"}.` };
-  }
-  if (event.type === "CUSTOM" && event.name === "otto.phase_transition") {
-    const value = asRecord(event.value);
-    const data = asRecord(value?.data);
-    const from = asString(data?.from);
-    const to = asString(data?.to);
-    return { title: "Phase transition", meta: to || "", body: from && to ? `Workflow moved from ${from} to ${to}.` : "Workflow phase changed." };
-  }
-  if (event.type === "CUSTOM" && event.name === "otto.phase_entered") {
-    const value = asRecord(event.value);
-    const data = asRecord(value?.data);
-    const phase = asString(data?.phase);
-    const step = data?.step;
-    return { title: "Phase entered", meta: phase || "", body: phase ? `Entered ${phase}${typeof step === "number" ? ` (step ${step})` : ""}.` : "Entered a workflow phase." };
-  }
-  if (event.type === "CUSTOM" && event.name === "otto.exec_start") {
-    const value = asRecord(event.value);
-    return { title: "Command started", meta: asString(value?.label) || "", body: truncateText((Array.isArray(value?.cmd) ? value?.cmd.join(" ") : asString(value?.label)) || "", 800) };
-  }
-  if (event.type === "CUSTOM" && event.name === "otto.exec_result") {
-    const value = asRecord(event.value);
-    const exitCode = value?.exitCode;
-    const timedOut = value?.timedOut;
-    const label = asString(value?.label) || "command";
-    const summary = `${label} finished with exit=${exitCode}${timedOut ? " (timed out)" : ""}.`;
-    return { title: "Command finished", meta: label, body: summary };
-  }
-  return null;
+  return handlers[event.name]();
+}
+
+function summarizeReasoningEvent(event: AgUiEvent) {
+  const value = asRecord(event.value);
+  return { title: "Reasoning", meta: "", body: truncateText(asString(value?.text) || JSON.stringify(event.value || {}, null, 2), 1200) };
+}
+
+function summarizeControlPlaneEvent(event: AgUiEvent) {
+  const jobs = Array.isArray(event.value?.jobs) ? event.value.jobs.length : 0;
+  const prompts = Array.isArray(event.value?.prompts) ? event.value.prompts.length : 0;
+  return { title: "Control plane", meta: `jobs ${jobs} / prompts ${prompts}`, body: prompts > 0 ? `Operator input is required for ${prompts} prompt${prompts === 1 ? "" : "s"}.` : `No outstanding prompts. ${jobs} tracked job${jobs === 1 ? "" : "s"}.` };
+}
+
+function summarizePhaseTransition(event: AgUiEvent) {
+  const value = asRecord(event.value);
+  const data = asRecord(value?.data);
+  const from = asString(data?.from);
+  const to = asString(data?.to);
+  return { title: "Phase transition", meta: to || "", body: from && to ? `Workflow moved from ${from} to ${to}.` : "Workflow phase changed." };
+}
+
+function summarizePhaseEntered(event: AgUiEvent) {
+  const value = asRecord(event.value);
+  const data = asRecord(value?.data);
+  const phase = asString(data?.phase);
+  const step = data?.step;
+  return { title: "Phase entered", meta: phase || "", body: phase ? `Entered ${phase}${typeof step === "number" ? ` (step ${step})` : ""}.` : "Entered a workflow phase." };
+}
+
+function summarizeExecStart(event: AgUiEvent) {
+  const value = asRecord(event.value);
+  return { title: "Command started", meta: asString(value?.label) || "", body: truncateText((Array.isArray(value?.cmd) ? value?.cmd.join(" ") : asString(value?.label)) || "", 800) };
+}
+
+function summarizeExecResult(event: AgUiEvent) {
+  const value = asRecord(event.value);
+  const exitCode = value?.exitCode;
+  const timedOut = value?.timedOut;
+  const label = asString(value?.label) || "command";
+  return { title: "Command finished", meta: label, body: `${label} finished with exit=${exitCode}${timedOut ? " (timed out)" : ""}.` };
 }
 
 function summarizeRawEvent(event: AgUiEvent) {

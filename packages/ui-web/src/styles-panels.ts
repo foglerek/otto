@@ -8,6 +8,12 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
 .timeline-grid {
   display: grid;
   gap: 12px;
+  align-content: start;
+}
+
+.artifact-card,
+.timeline-card {
+  align-self: start;
 }
 
 .artifact-card pre,
@@ -175,6 +181,11 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
 
 .collapsible-body {
   margin-top: 14px;
+}
+
+.debug-summary {
+  color: var(--text-faint);
+  font-size: 12px;
 }
 
 .collapsible-badge {
