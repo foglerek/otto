@@ -47,6 +47,8 @@ interface PendingPromptRecord {
   reject(error: Error): void;
 }
 
+type SnapshotListener = (snapshot: OttoWebControlPlaneSnapshot) => void | Promise<void>;
+
 export class OttoWebControlPlane {
   private readonly jobs = new Map<string, OttoWebJobRecord>();
   private nextJobId = 1;
@@ -54,6 +56,7 @@ export class OttoWebControlPlane {
   private readonly pendingPrompts = new Map<string, PendingPromptRecord>();
   private readonly persistenceFilePath: string | null;
   private persistSequence = 1;
+  private readonly listeners = new Set<SnapshotListener>();
 
   constructor(args?: { persistenceFilePath?: string }) {
     this.persistenceFilePath = args?.persistenceFilePath ?? null;
@@ -83,6 +86,7 @@ export class OttoWebControlPlane {
 
       this.pendingPrompts.clear();
       await this.persistSnapshot();
+      await this.notifyListeners();
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       if (err.code !== "ENOENT") {
@@ -97,6 +101,13 @@ export class OttoWebControlPlane {
       prompts: [...this.pendingPrompts.values()]
         .map((entry) => entry.snapshot)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    };
+  }
+
+  subscribe(listener: SnapshotListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
     };
   }
 
@@ -168,6 +179,7 @@ export class OttoWebControlPlane {
     this.nextJobId += 1;
     this.jobs.set(job.id, job);
     await this.persistSnapshot();
+    await this.notifyListeners();
 
     void (async () => {
       try {
@@ -188,6 +200,7 @@ export class OttoWebControlPlane {
           this.pendingPrompts.delete(entry.snapshot.id);
         }
         await this.persistSnapshot();
+        await this.notifyListeners();
       }
     })();
 
@@ -211,6 +224,7 @@ export class OttoWebControlPlane {
     }
 
     await this.persistSnapshot();
+    await this.notifyListeners();
     pending.resolve(args.value);
   }
 
@@ -259,8 +273,18 @@ export class OttoWebControlPlane {
       reject: rejectPending,
     });
     await this.persistSnapshot();
+    await this.notifyListeners();
 
     return await promise;
+  }
+
+  private async notifyListeners(): Promise<void> {
+    const snapshot = this.getSnapshot();
+    await Promise.all(
+      [...this.listeners].map(async (listener) => {
+        await listener(snapshot);
+      }),
+    );
   }
 
   private async persistSnapshot(): Promise<void> {

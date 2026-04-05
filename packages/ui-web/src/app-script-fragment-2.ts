@@ -95,21 +95,61 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_2 = `  const refresh = document.getEleme
   }
 }
 
+function connectLiveStream() {
+  const nextRunId = state.selectedRunId || '';
+  if (liveEventSource && liveStreamRunId === nextRunId) {
+    return;
+  }
+
+  if (liveEventSource) {
+    liveEventSource.close();
+  }
+
+  const query = nextRunId ? '?runId=' + encodeURIComponent(nextRunId) : '';
+  liveEventSource = new EventSource('/api/stream' + query);
+  liveStreamRunId = nextRunId;
+  state.liveStreamStatus = 'connecting';
+
+  liveEventSource.addEventListener('open', () => {
+    state.liveStreamStatus = 'connected';
+    renderApp();
+  });
+
+  liveEventSource.addEventListener('dashboard', (event) => {
+    applyDashboardUpdate(JSON.parse(event.data));
+    renderApp();
+  });
+
+  liveEventSource.addEventListener('control-plane', (event) => {
+    applyControlPlaneUpdate(JSON.parse(event.data));
+    renderApp();
+  });
+
+  liveEventSource.addEventListener('run-detail', (event) => {
+    const payload = JSON.parse(event.data);
+    if (payload.detail) {
+      state.detailCache.set(payload.runId, payload.detail);
+    } else {
+      state.detailCache.delete(payload.runId);
+    }
+    if (!state.selectedRunId && payload.runId) {
+      state.selectedRunId = payload.runId;
+    }
+    renderApp();
+  });
+
+  liveEventSource.addEventListener('error', () => {
+    state.liveStreamStatus = 'error';
+    renderApp();
+  });
+}
+
 async function loadDashboard() {
-  state.dashboard = await fetchJson('/api/status');
-  ensureSelectedRun();
+  applyDashboardUpdate(await fetchJson('/api/status'));
 }
 
 async function loadControlPlane() {
-  state.controlPlane = await fetchJson('/api/control-plane');
-  const nextDrafts = {};
-  for (const prompt of state.controlPlane.prompts || []) {
-    if (prompt.kind === 'text') {
-      nextDrafts[prompt.id] = state.promptDrafts[prompt.id]
-        || (typeof prompt.defaultValue === 'string' ? prompt.defaultValue : '');
-    }
-  }
-  state.promptDrafts = nextDrafts;
+  applyControlPlaneUpdate(await fetchJson('/api/control-plane'));
 }
 
 async function loadSelectedRun() {
@@ -125,6 +165,7 @@ async function loadSelectedRun() {
 async function refreshAll() {
   try {
     await Promise.all([loadDashboard(), loadControlPlane()]);
+    connectLiveStream();
     renderApp();
     await loadSelectedRun();
   } catch (error) {
@@ -214,6 +255,7 @@ async function startRun(ticketId) {
     });
     state.actionMessage = 'Started run job for ' + ticketId + '.';
     state.selectedRunId = ticketId;
+    connectLiveStream();
     await refreshAll();
   } catch (error) {
     state.actionError = error.message || String(error);
@@ -233,6 +275,7 @@ async function resumeRun(runId) {
     });
     state.actionMessage = 'Started resume job for ' + runId + '.';
     state.selectedRunId = runId;
+    connectLiveStream();
     await refreshAll();
   } catch (error) {
     state.actionError = error.message || String(error);
@@ -252,6 +295,7 @@ async function mergeBackRun(runId) {
     });
     state.actionMessage = 'Started merge-back job for ' + runId + '.';
     state.selectedRunId = runId;
+    connectLiveStream();
     await refreshAll();
   } catch (error) {
     state.actionError = error.message || String(error);
@@ -313,5 +357,5 @@ async function submitPrompt(promptId, value) {
 void refreshAll();
 window.setInterval(() => {
   void refreshAll();
-}, 2500);
+}, 20000);
 `;

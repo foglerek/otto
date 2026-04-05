@@ -200,6 +200,11 @@ Recommended server behavior:
 - normalize updates into structured run summaries
 - stream incremental updates to the browser
 
+Current progress:
+
+- local SSE stream endpoint now pushes dashboard updates, control-plane updates, and selected-run detail updates to the browser
+- browser still keeps a long-interval fallback refresh, but live updates now come primarily from the server stream instead of tight polling
+
 This gives the browser a real-time feel without changing Otto's storage model.
 
 ## Durability Model
@@ -309,6 +314,11 @@ Exit criteria:
 - recovery controls
 - artifact diffs / review ergonomics as needed
 
+Current progress:
+
+- server-side SSE stream now covers dashboard/control-plane/selected-run updates
+- browser shows concurrent job state, multi-prompt inbox, and stream connection status
+
 Exit criteria:
 
 - browser is the preferred operational surface for active work
@@ -358,4 +368,6 @@ That makes the next logical slices:
 
 1. keep the browser dumb and continue routing prompts/events/responses through the server to the correct run/process
 2. improve live oversight ergonomics for multiple concurrent workflows
+   - broaden live streaming beyond the currently selected run
+   - stream richer per-run event/exec slices instead of refreshing whole run-detail payloads
 3. optionally add lightweight server persistence (for example SQLite) only if coordination actually needs it

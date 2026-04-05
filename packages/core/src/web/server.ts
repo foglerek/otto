@@ -9,6 +9,7 @@ import { createManagedTicket, deleteManagedRun, ingestManagedTicket, listManaged
 import { mergeBackManagedRun, resumeManagedRun, startManagedRun } from "../services/run-actions.js";
 import { loadWebDashboardData, loadWebRunDetailData, resolveWebRepoContext } from "../services/web.js";
 import { createOttoWebControlPlane, type OttoWebControlPlane } from "./control-plane.js";
+import { OttoWebLiveStreamHub } from "./live-stream.js";
 
 export interface OttoWebServerHandle {
   url: string;
@@ -85,6 +86,8 @@ async function handleSimpleApiRoutes(args: {
   res: http.ServerResponse;
   controlPlane: OttoWebControlPlane;
   req: http.IncomingMessage;
+  requestUrl: URL;
+  liveStreamHub: OttoWebLiveStreamHub;
 }): Promise<boolean> {
   if (args.pathname === "/api/status") {
     writeJson(args.res, 200, await loadWebDashboardData(args.cwd));
@@ -93,6 +96,16 @@ async function handleSimpleApiRoutes(args: {
 
   if (args.pathname === "/api/control-plane" && args.method === "GET") {
     writeJson(args.res, 200, args.controlPlane.getSnapshot());
+    return true;
+  }
+
+  if (args.pathname === "/api/stream" && args.method === "GET") {
+    const selectedRunId = args.requestUrl.searchParams.get("runId");
+    await args.liveStreamHub.addClient({
+      req: args.req,
+      res: args.res,
+      selectedRunId,
+    });
     return true;
   }
 
@@ -244,7 +257,10 @@ async function handleDynamicReadRoutes(args: {
   return false;
 }
 
-async function createHttpServer(cwd: string): Promise<http.Server> {
+async function createHttpServer(cwd: string): Promise<{
+  server: http.Server;
+  liveStreamHub: OttoWebLiveStreamHub;
+}> {
   const context = await resolveWebRepoContext(cwd);
   const { artifactPaths } = await ensureRepoSetup({
     mainRepoPath: context.mainRepoPath,
@@ -253,8 +269,13 @@ async function createHttpServer(cwd: string): Promise<http.Server> {
   const controlPlane = await createOttoWebControlPlane({
     persistenceFilePath: `${artifactPaths.statesDir}/web-control-plane.json`,
   });
+  const liveStreamHub = new OttoWebLiveStreamHub({
+    cwd,
+    controlPlane,
+    artifactRootDir: artifactPaths.rootDir,
+  });
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     try {
       if (!req.url) {
         writeJson(res, 400, { error: "Missing request URL." });
@@ -276,6 +297,8 @@ async function createHttpServer(cwd: string): Promise<http.Server> {
         req,
         res,
         controlPlane,
+        requestUrl,
+        liveStreamHub,
       };
 
       if (await handleSimpleApiRoutes(routeArgs)) {
@@ -296,6 +319,8 @@ async function createHttpServer(cwd: string): Promise<http.Server> {
       writeJson(res, 500, { error: message });
     }
   });
+
+  return { server, liveStreamHub };
 }
 
 async function listen(server: http.Server, host: string, port: number): Promise<number> {
@@ -328,7 +353,7 @@ export async function startOttoWebServer(args: {
 }): Promise<OttoWebServerHandle> {
   const host = args.host ?? "127.0.0.1";
   const requestedPort = args.port ?? 4310;
-  const server = await createHttpServer(args.cwd);
+  const { server, liveStreamHub } = await createHttpServer(args.cwd);
 
   let port: number;
   try {
@@ -352,6 +377,7 @@ export async function startOttoWebServer(args: {
     host,
     port,
     async close() {
+      liveStreamHub.close();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error) {

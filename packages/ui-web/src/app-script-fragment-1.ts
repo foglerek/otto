@@ -12,7 +12,11 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_1 = `const state = {
   isCreatingTicket: false,
   isIngestingTicket: false,
   isDeletingRun: false,
+  liveStreamStatus: "connecting",
 };
+
+let liveEventSource = null;
+let liveStreamRunId = null;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -93,6 +97,23 @@ function getPromptDraft(prompt) {
 function clearActionState() {
   state.actionMessage = "";
   state.actionError = "";
+}
+
+function applyDashboardUpdate(dashboard) {
+  state.dashboard = dashboard;
+  ensureSelectedRun();
+}
+
+function applyControlPlaneUpdate(controlPlane) {
+  state.controlPlane = controlPlane;
+  const nextDrafts = {};
+  for (const prompt of state.controlPlane.prompts || []) {
+    if (prompt.kind === 'text') {
+      nextDrafts[prompt.id] = state.promptDrafts[prompt.id]
+        || (typeof prompt.defaultValue === 'string' ? prompt.defaultValue : '');
+    }
+  }
+  state.promptDrafts = nextDrafts;
 }
 
 function renderRunList(runs) {
@@ -333,7 +354,7 @@ function renderApp() {
         '<div class="panel stack">' +
           '<div class="toolbar">' +
             '<div><p class="eyebrow">Repository</p><p class="mono">' + escapeHtml(dashboard.repoPath) + '</p></div>' +
-            '<button class="button" id="refresh-button">Refresh</button>' +
+            '<div class="prompt-actions"><span class="badge ' + (state.liveStreamStatus === 'connected' ? 'done' : state.liveStreamStatus === 'error' ? 'stale' : 'waiting') + '">stream ' + escapeHtml(state.liveStreamStatus) + '</span><button class="button" id="refresh-button">Refresh</button></div>' +
           '</div>' +
           '<p class="subtle">Config: <span class="mono">' + escapeHtml(dashboard.configPath) + '</span></p>' +
           '<div class="detail-badges">' +
@@ -398,4 +419,6 @@ function renderApp() {
       void submitPrompt(promptId, choice);
     });
   });
+
+  connectLiveStream();
 `;
