@@ -28,9 +28,9 @@ function summarizeErrorForTerminal(message: string, maxChars = 800): string {
 function shouldShowExecStart(): boolean {
   const raw = process.env.OTTO_PROGRESS_EXEC_START;
   if (!raw) {
-    return false;
+    return true;
   }
-  return /^(1|true|yes|on)$/i.test(raw.trim());
+  return !/^(0|false|no|off)$/i.test(raw.trim());
 }
 
 export function reportRunEventToTerminal(event: OttoRunEvent): void {

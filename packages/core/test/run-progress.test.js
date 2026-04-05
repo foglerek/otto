@@ -57,7 +57,31 @@ test("run progress reporter prints phase and run failures", () => {
   assert.match(stderrChunks.join(""), /\[run failed\] boom/);
 });
 
-test("run progress reporter prints exec start only when enabled", () => {
+test("run progress reporter prints exec start by default", () => {
+  const stdoutChunks = [];
+  const stdoutWrite = process.stdout.write;
+
+  process.stdout.write = ((chunk) => {
+    stdoutChunks.push(String(chunk));
+    return true;
+  });
+
+  try {
+    progress.reportExecStartToTerminal({
+      at: new Date().toISOString(),
+      runId: "run-1",
+      label: "opencode:ticket-ingestion:lead",
+      cmd: ["opencode", "run"],
+      cwd: "/tmp/repo",
+    });
+  } finally {
+    process.stdout.write = stdoutWrite;
+  }
+
+  assert.match(stdoutChunks.join(""), /\[exec\] opencode:ticket-ingestion:lead \(started\)/);
+});
+
+test("run progress reporter can suppress exec start via env", () => {
   const stdoutChunks = [];
   const stdoutWrite = process.stdout.write;
   const original = process.env.OTTO_PROGRESS_EXEC_START;
@@ -66,7 +90,7 @@ test("run progress reporter prints exec start only when enabled", () => {
     stdoutChunks.push(String(chunk));
     return true;
   });
-  process.env.OTTO_PROGRESS_EXEC_START = "1";
+  process.env.OTTO_PROGRESS_EXEC_START = "0";
 
   try {
     progress.reportExecStartToTerminal({
@@ -85,7 +109,7 @@ test("run progress reporter prints exec start only when enabled", () => {
     }
   }
 
-  assert.match(stdoutChunks.join(""), /\[exec\] opencode:ticket-ingestion:lead \(started\)/);
+  assert.equal(stdoutChunks.join(""), "");
 });
 
 test("run progress reporter is silent in json mode", () => {
