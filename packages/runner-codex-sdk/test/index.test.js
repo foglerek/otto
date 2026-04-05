@@ -6,6 +6,19 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const mod = await jiti(new URL("../src/index.ts", import.meta.url).href);
 
+function makeResponseStream(events) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const event of events) {
+        yield event;
+      }
+    },
+    controller: {
+      abort() {},
+    },
+  };
+}
+
 test("codex sdk runner parses output_text response", async () => {
   let request;
   const runner = mod.createCodexSdkRunner({
@@ -169,4 +182,51 @@ test("codex sdk runner emits AG-UI assistant events", async () => {
     "TEXT_MESSAGE_END",
   ]);
   assert.equal(events[1].delta, "codex sdk hello");
+});
+
+test("codex sdk runner prefers streaming responses when available", async () => {
+  const events = [];
+  const logs = [];
+  const runner = mod.createCodexSdkRunner({
+    clientFactory: async () => ({
+      responses: {
+        create: async (input) => {
+          if (input.stream === true) {
+            return makeResponseStream([
+              { type: "response.output_text.delta", delta: "hello " },
+              { type: "response.output_text.delta", delta: "codex" },
+              { type: "response.completed" },
+            ]);
+          }
+          throw new Error("unexpected non-streaming fallback");
+        },
+      },
+    }),
+  });
+
+  const out = await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "Do work",
+    cwd: process.cwd(),
+    exec: { run: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }) },
+    onEvent: async (event) => {
+      events.push(event);
+    },
+    onLog: async (entry) => {
+      logs.push(entry);
+    },
+  });
+
+  assert.equal(out.success, true);
+  assert.equal(out.outputText, "hello codex");
+  assert.deepEqual(events.map((event) => event.type), [
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[1].delta, "hello ");
+  assert.equal(events[2].delta, "codex");
+  assert.equal(logs[0].channel, "raw");
 });

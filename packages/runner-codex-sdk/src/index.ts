@@ -18,6 +18,12 @@ type CodexResponsesApi = {
   create(input: Record<string, unknown>): Promise<unknown>;
 };
 
+type CodexResponseStream = AsyncIterable<unknown> & {
+  controller?: {
+    abort(): void;
+  };
+};
+
 type CodexSdkClient = {
   responses: CodexResponsesApi;
 };
@@ -224,6 +230,122 @@ async function emitAssistantText(args: {
   await args.onEvent({ type: "TEXT_MESSAGE_END", messageId: args.messageId, timestamp, rawEvent: args.rawEvent });
 }
 
+async function emitAssistantTextStart(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  await args.onEvent({
+    type: "TEXT_MESSAGE_START",
+    messageId: args.messageId,
+    role: "assistant",
+    timestamp: Date.now(),
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitAssistantTextDelta(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  delta: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent || !args.delta.length) {
+    return;
+  }
+  await args.onEvent({
+    type: "TEXT_MESSAGE_CONTENT",
+    messageId: args.messageId,
+    delta: args.delta,
+    timestamp: Date.now(),
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitAssistantTextEnd(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  await args.onEvent({
+    type: "TEXT_MESSAGE_END",
+    messageId: args.messageId,
+    timestamp: Date.now(),
+    rawEvent: args.rawEvent,
+  });
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return Boolean(value) && typeof (value as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function";
+}
+
+async function runStreamingResponse(args: {
+  stream: CodexResponseStream;
+  options: OttoRunnerRunOptions;
+}): Promise<{ response: unknown; streamedText: string; timedOut: boolean }> {
+  const messageId = "codex-sdk-message-1";
+  let streamedText = "";
+  let started = false;
+
+  const consume = (async () => {
+    for await (const event of args.stream) {
+      await args.options.onLog?.({
+        runnerId: "codex-sdk",
+        channel: "raw",
+        level: "debug",
+        message: JSON.stringify(event),
+        raw: event,
+      });
+
+      if (!isRecord(event)) {
+        continue;
+      }
+      const eventType = asString(event.type);
+      if (eventType === "response.output_text.delta") {
+        const delta = typeof event.delta === "string" ? event.delta : undefined;
+        if (!delta) continue;
+        if (!started) {
+          started = true;
+          await emitAssistantTextStart({
+            onEvent: args.options.onEvent,
+            messageId,
+            rawEvent: event,
+          });
+        }
+        streamedText += delta;
+        await emitAssistantTextDelta({
+          onEvent: args.options.onEvent,
+          messageId,
+          delta,
+          rawEvent: event,
+        });
+      }
+    }
+    return undefined;
+  })();
+
+  const wrapped = await withTimeout(consume, args.options.timeoutMs ?? 10 * 60_000);
+  if (wrapped.timedOut) {
+    args.stream.controller?.abort();
+    return { response: undefined, streamedText, timedOut: true };
+  }
+
+  if (started) {
+    await emitAssistantTextEnd({
+      onEvent: args.options.onEvent,
+      messageId,
+    });
+  }
+
+  return { response: undefined, streamedText, timedOut: false };
+}
+
 class CodexSdkRunner implements OttoRunner {
   readonly kind = "codex-sdk";
   readonly id = "codex-sdk";
@@ -268,12 +390,13 @@ class CodexSdkRunner implements OttoRunner {
     }
 
     let response: unknown;
+    let streamedText = "";
     try {
-      const wrapped = await withTimeout(
-        client.responses.create(request),
+      const first = await withTimeout(
+        client.responses.create({ ...request, stream: true }),
         options.timeoutMs ?? 10 * 60_000,
       );
-      if (wrapped.timedOut) {
+      if (first.timedOut) {
         return {
           success: false,
           sessionId: options.sessionId,
@@ -281,7 +404,24 @@ class CodexSdkRunner implements OttoRunner {
           error: "Codex SDK request timed out.",
         };
       }
-      response = wrapped.value;
+
+      if (isAsyncIterable(first.value)) {
+        const streamed = await runStreamingResponse({
+          stream: first.value as CodexResponseStream,
+          options,
+        });
+        streamedText = streamed.streamedText;
+        if (streamed.timedOut) {
+          return {
+            success: false,
+            sessionId: options.sessionId,
+            timedOut: true,
+            error: "Codex SDK request timed out.",
+          };
+        }
+      } else {
+        response = first.value;
+      }
     } catch (error) {
       const message = getErrorMessage(error);
       return {
@@ -292,7 +432,7 @@ class CodexSdkRunner implements OttoRunner {
       };
     }
 
-    const outputText = extractTextFromResponse(response);
+    const outputText = streamedText || extractTextFromResponse(response);
     const sessionId = extractSessionId(response) ?? options.sessionId;
 
     if (!outputText) {
@@ -303,12 +443,14 @@ class CodexSdkRunner implements OttoRunner {
       };
     }
 
-    await emitAssistantText({
-      onEvent: options.onEvent,
-      messageId: `${this.id}-message-1`,
-      text: outputText,
-      rawEvent: response,
-    });
+    if (!streamedText) {
+      await emitAssistantText({
+        onEvent: options.onEvent,
+        messageId: `${this.id}-message-1`,
+        text: outputText,
+        rawEvent: response,
+      });
+    }
 
     return {
       success: true,

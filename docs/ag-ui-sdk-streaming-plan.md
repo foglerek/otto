@@ -96,6 +96,15 @@ Current assessment:
 - this should be the next implementation slice after `claude-sdk`
 - OpenAI Responses streaming appears structurally straightforward for incremental text and raw event passthrough
 
+Current progress:
+
+- implemented incremental text streaming through the OpenAI Responses streaming path when available
+- final response fallback remains in place for non-streaming client implementations
+
+Remaining gap:
+
+- richer tool/reasoning semantics from the streamed OpenAI event graph are still ahead
+
 ### `@otto/runner-google-genai`
 
 Recommended API:
@@ -114,6 +123,11 @@ Recommended rollout:
 1. incremental text streaming
 2. raw chunk passthrough
 3. tool semantics if clearly present in chunk structure
+
+Current blocker:
+
+- this now looks like the next clean SDK streaming candidate after `claude-sdk` and `codex-sdk`
+- we still need to adopt `generateContentStream(...)` in the runner implementation rather than just the current final-response path
 
 ### `@otto/runner-opencode-sdk`
 
@@ -138,6 +152,10 @@ Recommended rollout:
 1. prove that we can safely scope streamed events to the current session
 2. map assistant text
 3. map tool lifecycle
+
+Current blocker:
+
+- this likely needs a different implementation shape than the other SDK runners because the natural primitive is session/event subscription rather than a single request returning a stream
 
 ## Not Worth Doing Yet
 
