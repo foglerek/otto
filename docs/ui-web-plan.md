@@ -152,6 +152,8 @@ Important architecture clarification:
 - the browser is only the UI surface
 - the local server is the control plane
 - `@otto/core` still owns workflow execution and runner orchestration
+- `.otto/` remains the durable source of truth for run/workflow state
+- if the web server exits, active workflows may stop and later resume from Otto state; exact in-flight continuation is not a requirement
 
 Short term:
 
@@ -159,7 +161,11 @@ Short term:
 
 Medium term:
 
-- progressively refactor core away from imperative prompt calls toward explicit control-plane state and pending actions
+- support multiple concurrent server-managed workflows by routing events/prompts to the correct Otto process or in-process run handle
+
+Longer term / optional:
+
+- if needed later, add more explicit control-plane state or a lightweight server DB for richer coordination
 
 Recommended flow:
 
@@ -195,6 +201,17 @@ Recommended server behavior:
 - stream incremental updates to the browser
 
 This gives the browser a real-time feel without changing Otto's storage model.
+
+## Durability Model
+
+The current product requirement is intentionally simple:
+
+- the browser should stay dumb
+- the server should be the glue between UI and Otto
+- Otto's persisted state under `.otto/` is already good-enough recovery state
+- if the server dies, workflows can be resumed from Otto state even if some checks replay
+
+This means the web stack does not currently need exact mid-prompt or mid-step continuation semantics.
 
 ## API Shape
 
@@ -277,7 +294,7 @@ Current progress:
 - control-plane job/prompt snapshot now persists to `.otto/states/web-control-plane.json`
 - on server restart, incomplete web jobs are surfaced as failed instead of silently disappearing
 - a first control-plane-state step is now in place: tracked prompt adapters toggle `workflow.needsUserInput` in persisted run state during prompt waits
-- medium-term refactor toward explicit control-plane pending actions remains open
+- deeper explicit pending-action refactors are now optional, not required for the current UX model
 
 Exit criteria:
 
@@ -331,12 +348,12 @@ That delivers immediate UX value before the prompt bridge and action workflows l
 
 The current short-term bridge is intentionally minimal.
 
-- only one interactive web-controlled Otto job is supported at a time
+- it is currently more restrictive than the desired end state
 - persisted job state survives server restart, but interrupted jobs are failed rather than resumed
-- core still expresses human decisions as imperative prompt calls rather than explicit pending actions/state
+- core already has good-enough persisted workflow state for coarse resume semantics
 
 That makes the next logical slices:
 
-1. polish the current web action surface and richer live oversight
-2. improve prompt/job durability and richer live oversight
-3. medium term: refactor core from imperative prompts to explicit control-plane pending actions
+1. replace the single-job bridge with multi-workflow server routing keyed by run/process
+2. keep the browser dumb and route prompts/events/responses through the server to the correct Otto process
+3. optionally add lightweight server persistence (for example SQLite) only if coordination actually needs it
