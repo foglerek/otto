@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 import process from "node:process";
 
-import { UI_WEB_APP_SCRIPT, UI_WEB_STYLES, renderUiWebDocument } from "@otto/ui-web";
+import { loadUiWebAssets, renderUiWebDocument } from "@otto/ui-web";
 
 import { ensureRepoSetup } from "../repo-setup.js";
 import { createManagedTicket, deleteManagedRun, ingestManagedTicket, listManagedTickets } from "../services/actions.js";
@@ -63,19 +63,24 @@ function openBrowser(url: string): void {
   }
 }
 
-function serveStaticAsset(pathname: string, res: http.ServerResponse): boolean {
-  if (pathname === "/") {
-    writeResponse(res, 200, renderUiWebDocument(), "text/html; charset=utf-8");
+function serveLoadedStaticAsset(args: {
+  pathname: string;
+  res: http.ServerResponse;
+  javascript: string;
+  stylesheet: string;
+}): boolean {
+  if (args.pathname === "/") {
+    writeResponse(args.res, 200, renderUiWebDocument(), "text/html; charset=utf-8");
     return true;
   }
 
-  if (pathname === "/styles.css") {
-    writeResponse(res, 200, UI_WEB_STYLES, "text/css; charset=utf-8");
+  if (args.pathname === "/styles.css") {
+    writeResponse(args.res, 200, args.stylesheet, "text/css; charset=utf-8");
     return true;
   }
 
-  if (pathname === "/app.js") {
-    writeResponse(res, 200, UI_WEB_APP_SCRIPT, "text/javascript; charset=utf-8");
+  if (args.pathname === "/app.js") {
+    writeResponse(args.res, 200, args.javascript, "text/javascript; charset=utf-8");
     return true;
   }
 
@@ -283,6 +288,7 @@ async function createHttpServer(cwd: string): Promise<{
   server: http.Server;
   liveStreamHub: OttoWebLiveStreamHub;
 }> {
+  const assets = await loadUiWebAssets();
   const context = await resolveWebRepoContext(cwd);
   const { artifactPaths } = await ensureRepoSetup({
     mainRepoPath: context.mainRepoPath,
@@ -308,7 +314,7 @@ async function createHttpServer(cwd: string): Promise<{
       const pathname = requestUrl.pathname;
       const method = req.method ?? "GET";
 
-      if (serveStaticAsset(pathname, res)) {
+      if (serveLoadedStaticAsset({ pathname, res, ...assets })) {
         return;
       }
 

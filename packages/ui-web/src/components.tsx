@@ -1,0 +1,186 @@
+import React from "react";
+
+import { summarizeAgUiEvent } from "./ag-ui-summary.js";
+import {
+  classifyAgUiEvent,
+  formatDate,
+  getActiveJobs,
+  getPromptDraft,
+  isRunBusy,
+  statusBadgeClass,
+} from "./helpers.js";
+import type { AgUiEvent, AppState, ControlPlanePrompt, DashboardData, RunDetailData } from "./types.js";
+
+export function ShellLoading(): React.JSX.Element {
+  return <div className="shell-loading"><span className="shell-mark">OTTO</span><p>Loading local control plane...</p></div>;
+}
+
+export function ErrorState(props: { message: string }): React.JSX.Element {
+  return <div className="error-state"><div><span className="wordmark">OTTO</span><p>{props.message}</p></div></div>;
+}
+
+function SummaryGrid(props: { dashboard: DashboardData }): React.JSX.Element {
+  const { dashboard } = props;
+  return (
+    <div className="summary-grid">
+      <article><p className="eyebrow">Runs</p><div className="metric mono">{dashboard.runCounts.total}</div></article>
+      <article><p className="eyebrow">Active</p><div className="metric mono">{dashboard.runCounts.active}</div></article>
+      <article><p className="eyebrow">Tickets</p><div className="metric mono">{dashboard.ticketsCount}</div></article>
+      <article><p className="eyebrow">Runner</p><div className="metric mono" style={{ fontSize: 18 }}>{dashboard.defaultRunnerId || "n/a"}</div></article>
+    </div>
+  );
+}
+
+function JobsPanel(props: { state: AppState }): React.JSX.Element | null {
+  const visibleJobs = (() => {
+    const activeJobs = getActiveJobs(props.state.controlPlane);
+    return activeJobs.length > 0 ? activeJobs : (props.state.controlPlane?.jobs || []).slice(0, 3);
+  })();
+  if (visibleJobs.length === 0) return null;
+  return (
+    <div className="panel stack">
+      <div><p className="eyebrow">Jobs</p><p className="subtle">Server-managed workflow activity across concurrent Otto runs.</p></div>
+      <div className="ticket-list">
+        {visibleJobs.map((job) => (
+          <div className="ticket-row" key={job.id}>
+            <div><strong>{job.kind}</strong> <span className="mono">{job.runId}</span>{job.error ? <p className="footer-note">{job.error}</p> : null}</div>
+            <div className="badge-row"><span className={`badge ${statusBadgeClass(job.status)}`}>{job.status}</span><span className="badge mono">{formatDate(job.startedAt)}</span></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function PromptInbox(props: {
+  prompts: ControlPlanePrompt[];
+  promptDrafts: Record<string, string>;
+  onDraftChange: (id: string, value: string) => void;
+  onRespond: (id: string, value: boolean | string) => void;
+}): React.JSX.Element | null {
+  if (props.prompts.length === 0) return null;
+  return (
+    <div className="panel stack prompt-panel">
+      <div><p className="eyebrow">Prompt Inbox</p><p className="subtle">The server is waiting on input for {props.prompts.length} prompt{props.prompts.length === 1 ? "" : "s"}.</p></div>
+      <div className="prompt-list">
+        {props.prompts.map((prompt) => (
+          <div className="prompt-card" key={prompt.id}>
+            <div className="detail-topline"><div><p className="eyebrow">{prompt.kind}</p><p className="subtle">Run <span className="mono">{prompt.runId}</span></p></div><span className="badge mono">{formatDate(prompt.createdAt)}</span></div>
+            <pre className="prompt-message">{prompt.message}</pre>
+            {prompt.kind === "confirm" ? <div className="prompt-actions"><button className="button button-primary" onClick={() => props.onRespond(prompt.id, true)}>Confirm</button><button className="button" onClick={() => props.onRespond(prompt.id, false)}>Cancel</button></div> : null}
+            {prompt.kind === "select" ? <div className="prompt-actions">{(prompt.choices || []).map((choice) => <button className="button" key={choice} onClick={() => props.onRespond(prompt.id, choice)}>{choice}</button>)}</div> : null}
+            {prompt.kind === "text" ? <><textarea className="text-input" rows={6} value={getPromptDraft(props.promptDrafts, prompt)} onChange={(event) => props.onDraftChange(prompt.id, event.target.value)} /><div className="prompt-actions"><button className="button button-primary" onClick={() => props.onRespond(prompt.id, getPromptDraft(props.promptDrafts, prompt))}>Submit response</button></div></> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function AgUiFeed(props: { runId: string; events: AgUiEvent[] }): React.JSX.Element {
+  return (
+    <article className="timeline-card">
+      <p className="eyebrow">AG-UI</p>
+      <h3>Run event feed</h3>
+      {props.events.length > 0 ? <div className="prompt-list">{[...props.events].reverse().map((event, index) => {
+        const kind = classifyAgUiEvent(event);
+        const summary = summarizeAgUiEvent(props.runId, event);
+        return <div className={`prompt-card ag-ui-card ag-ui-card-${kind}`} key={`${event.timestamp || index}-${event.type}-${index}`}><div className="detail-topline"><div><p className="eyebrow">{event.type || "EVENT"}</p><p className="subtle">{summary.title}</p></div><div className="badge-row">{summary.meta ? <span className="badge mono">{summary.meta}</span> : null}<span className="badge mono">{event.timestamp ? formatDate(event.timestamp) : "-"}</span></div></div>{summary.body ? <pre className="prompt-message">{summary.body}</pre> : <p className="footer-note">No body payload.</p>}</div>;
+      })}</div> : <p className="subtle">No AG-UI events captured yet for this run.</p>}
+    </article>
+  );
+}
+
+function Sidebar(props: {
+  state: AppState;
+  onRefresh: () => void;
+  onCreateTicket: () => void;
+  onIngestTicket: () => void;
+  onTicketDraftChange: (value: string) => void;
+  onIngestDraftChange: (value: string) => void;
+  onIngestSourceNameChange: (value: string) => void;
+  onIngestFile: (file: File) => void;
+  onStartRun: (ticketId: string) => void;
+  onSelectRun: (runId: string) => void;
+}): React.JSX.Element {
+  const dashboard = props.state.dashboard as DashboardData;
+  return (
+    <aside className="sidebar">
+      <div className="stack">
+        <div><span className="wordmark">OTTO WEB</span><h1 className="title">Local control plane</h1><p className="subtle">The server owns Otto jobs and prompt resolution. The browser is the operator surface.</p></div>
+        <SummaryGrid dashboard={dashboard} />
+        <div className="panel stack"><div className="toolbar"><div><p className="eyebrow">Repository</p><p className="mono">{dashboard.repoPath}</p></div><div className="prompt-actions"><span className={`badge ${statusBadgeClass(props.state.liveStreamStatus)}`}>stream {props.state.liveStreamStatus}</span><button className="button" onClick={props.onRefresh}>Refresh</button></div></div><p className="subtle">Config: <span className="mono">{dashboard.configPath}</span></p><div className="detail-badges"><span className="badge">onboarding {dashboard.onboardingStatus || "missing"}</span><span className="badge">subagents {dashboard.subagentsEnabled ? "enabled" : "disabled"}</span></div></div>
+        <JobsPanel state={props.state} />
+        <div className="panel stack"><div><p className="eyebrow">Create ticket</p><p className="subtle">Quick browser action routed through the shared core service layer.</p></div><textarea className="text-input" rows={5} value={props.state.ticketDraft} onChange={(event) => props.onTicketDraftChange(event.target.value)} placeholder="Describe the work you want Otto to tackle." /><button className="button button-primary" disabled={props.state.isCreatingTicket} onClick={props.onCreateTicket}>{props.state.isCreatingTicket ? "Creating..." : "Create ticket"}</button></div>
+        <div className="panel stack"><div><p className="eyebrow">Ingest external ticket</p><p className="subtle">Paste or type markdown, or upload a file and send its contents through the ingest flow.</p></div><input className="file-input" type="file" disabled={props.state.isIngestingTicket} onChange={(event) => { const file = event.target.files?.[0]; if (file) props.onIngestFile(file); }} /><input className="text-line-input mono" type="text" value={props.state.ingestSourceName} disabled={props.state.isIngestingTicket} onChange={(event) => props.onIngestSourceNameChange(event.target.value)} /><textarea className="text-input" rows={7} value={props.state.ingestDraft} onChange={(event) => props.onIngestDraftChange(event.target.value)} placeholder="# Imported ticket&#10;&#10;Paste or type external ticket content here." /><button className="button button-primary" disabled={props.state.isIngestingTicket} onClick={props.onIngestTicket}>{props.state.isIngestingTicket ? "Ingesting..." : "Ingest external ticket"}</button></div>
+        <div className="panel stack"><div><p className="eyebrow">Tickets</p><p className="subtle">Start browser-driven runs directly from the inventory.</p></div><div className="ticket-list">{dashboard.tickets.map((ticket) => <div className="ticket-row" key={ticket.ticketId}><div><strong className="mono">{ticket.ticketId}</strong></div>{ticket.hasRun ? <span className="badge">started</span> : <button className="button button-secondary" disabled={isRunBusy(props.state.controlPlane, ticket.ticketId)} onClick={() => props.onStartRun(ticket.ticketId)}>Start</button>}</div>)}</div></div>
+      </div>
+      <div className="runs-list">{dashboard.runs.map((run) => <button className={`run-row${run.runId === props.state.selectedRunId ? " active" : ""}`} key={run.runId} onClick={() => props.onSelectRun(run.runId)}><div className="run-row-title"><strong>{run.ticketSlug || run.runId}</strong><span className={`badge ${statusBadgeClass(run.processStatus)}`}>{run.processStatus}</span></div><p className="subtle mono">{run.runId}</p><div className="badge-row"><span className="badge">{run.phase || "unknown"}</span><span className="badge">queue {run.taskQueueLength}</span>{run.needsUserInput ? <span className="badge waiting">waiting</span> : null}</div></button>)}</div>
+    </aside>
+  );
+}
+
+function RunDetail(props: {
+  state: AppState;
+  detail: RunDetailData | null;
+  onResumeRun: (runId: string) => void;
+  onMergeBackRun: (runId: string) => void;
+  onDeleteRun: (runId: string) => void;
+}): React.JSX.Element {
+  if (!props.detail) {
+    return <div className="empty-state"><div><span className="wordmark">OTTO</span><p>Select a run to inspect its artifacts and telemetry.</p></div></div>;
+  }
+  const selected = props.detail;
+  const agUiEvents = props.state.agUiEventsByRun[selected.summary.runId] || [];
+  return (
+    <div className="stack">
+      <section className="header-block">
+        <div className="toolbar"><div><p className="eyebrow">Run detail</p><h1 className="title">{selected.summary.ticketSlug || selected.summary.runId}</h1><p className="subtle mono">{selected.summary.runId}</p></div><div className="detail-actions"><div className="detail-badges"><span className={`badge ${statusBadgeClass(selected.summary.processStatus)}`}>{selected.summary.processStatus}</span><span className="badge">phase {selected.summary.phase || "unknown"}</span>{selected.summary.needsUserInput ? <span className="badge waiting">awaiting input</span> : null}</div><div className="prompt-actions">{selected.summary.processStatus !== "active" ? <button className="button button-primary" disabled={isRunBusy(props.state.controlPlane, selected.summary.runId)} onClick={() => props.onResumeRun(selected.summary.runId)}>Resume</button> : null}{selected.summary.processStatus !== "active" && selected.summary.finalReportAvailable ? <button className="button button-secondary" disabled={isRunBusy(props.state.controlPlane, selected.summary.runId)} onClick={() => props.onMergeBackRun(selected.summary.runId)}>Merge back</button> : null}<button className="button button-danger" disabled={props.state.isDeletingRun || isRunBusy(props.state.controlPlane, selected.summary.runId)} onClick={() => props.onDeleteRun(selected.summary.runId)}>{props.state.isDeletingRun ? "Deleting..." : "Delete run"}</button></div></div></div>
+        <div className="grid-two" style={{ marginTop: 20 }}><div className="panel"><dl className="keyvals"><dt>Created</dt><dd>{formatDate(selected.summary.createdAt)}</dd><dt>Branch</dt><dd className="mono">{selected.summary.branchName}</dd><dt>Base</dt><dd className="mono">{selected.summary.baseBranch}</dd><dt>Worktree</dt><dd className="mono">{selected.worktreePath}</dd><dt>State file</dt><dd className="mono">{selected.stateFilePath}</dd><dt>Ticket file</dt><dd className="mono">{selected.ticketFilePath}</dd></dl></div><div className="panel"><dl className="keyvals"><dt>Queue length</dt><dd>{selected.summary.taskQueueLength}</dd><dt>Artifacts</dt><dd>{selected.runFiles.length} files</dd><dt>Plan</dt><dd>{selected.summary.planAvailable ? "present" : "missing"}</dd><dt>Final report</dt><dd>{selected.summary.finalReportAvailable ? "present" : "missing"}</dd><dt>Recent events</dt><dd>{selected.recentEvents.length}</dd><dt>Recent execs</dt><dd>{selected.recentExecs.length}</dd></dl></div></div>
+      </section>
+      <section className="grid-two"><div className="artifact-grid">{selected.artifacts.map((artifact) => <article className="artifact-card" key={artifact.id}><div className="detail-topline"><div><p className="eyebrow">Artifact</p><h3>{artifact.title}</h3></div><div className="detail-badges"><span className="badge mono">{artifact.language}</span>{artifact.truncated ? <span className="badge">truncated</span> : null}</div></div><p className="footer-note mono">{artifact.path}</p>{artifact.exists ? <pre>{artifact.content || ""}</pre> : <p className="subtle">Not present yet.</p>}</article>)}</div><div className="timeline-grid"><AgUiFeed runId={selected.summary.runId} events={agUiEvents} /><article className="timeline-card"><p className="eyebrow">Timeline</p><h3>Run events</h3>{selected.recentEvents.length > 0 ? <pre>{selected.recentEvents.map((entry) => `[${entry.at}] ${entry.type}${entry.data ? `\n${JSON.stringify(entry.data, null, 2)}` : ""}`).join("\n\n")}</pre> : <p className="subtle">No entries yet.</p>}</article><article className="timeline-card"><p className="eyebrow">Timeline</p><h3>Exec events</h3>{selected.recentExecs.length > 0 ? <pre>{selected.recentExecs.map((entry) => `[${entry.at}] ${entry.label} exit=${entry.exitCode} timedOut=${entry.timedOut} durationMs=${entry.durationMs}`).join("\n\n")}</pre> : <p className="subtle">No entries yet.</p>}</article></div></section>
+    </div>
+  );
+}
+
+export function AppLayout(props: {
+  state: AppState;
+  selectedDetail: RunDetailData | null;
+  onSelectRun: (runId: string) => void;
+  onRefresh: () => void;
+  onCreateTicket: () => void;
+  onIngestTicket: () => void;
+  onTicketDraftChange: (value: string) => void;
+  onIngestDraftChange: (value: string) => void;
+  onIngestSourceNameChange: (value: string) => void;
+  onIngestFile: (file: File) => void;
+  onStartRun: (ticketId: string) => void;
+  onRespondPrompt: (id: string, value: boolean | string) => void;
+  onPromptDraftChange: (id: string, value: string) => void;
+  onResumeRun: (runId: string) => void;
+  onMergeBackRun: (runId: string) => void;
+  onDeleteRun: (runId: string) => void;
+}): React.JSX.Element {
+  return (
+    <div className="app-shell">
+      <Sidebar
+        state={props.state}
+        onRefresh={props.onRefresh}
+        onCreateTicket={props.onCreateTicket}
+        onIngestTicket={props.onIngestTicket}
+        onTicketDraftChange={props.onTicketDraftChange}
+        onIngestDraftChange={props.onIngestDraftChange}
+        onIngestSourceNameChange={props.onIngestSourceNameChange}
+        onIngestFile={props.onIngestFile}
+        onStartRun={props.onStartRun}
+        onSelectRun={props.onSelectRun}
+      />
+      <main className="main">
+        <PromptInbox prompts={props.state.controlPlane?.prompts || []} promptDrafts={props.state.promptDrafts} onDraftChange={props.onPromptDraftChange} onRespond={props.onRespondPrompt} />
+        {props.state.actionError ? <div className="action-banner error">{props.state.actionError}</div> : null}
+        {props.state.actionMessage ? <div className="action-banner success">{props.state.actionMessage}</div> : null}
+        <RunDetail state={props.state} detail={props.selectedDetail} onResumeRun={props.onResumeRun} onMergeBackRun={props.onMergeBackRun} onDeleteRun={props.onDeleteRun} />
+      </main>
+    </div>
+  );
+}
