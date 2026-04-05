@@ -60,6 +60,16 @@ Recommended rollout:
 2. raw stream event passthrough
 3. reasoning/tool semantics second
 
+Current progress:
+
+- implemented incremental text streaming via the Anthropic SDK stream helper path when available
+- stream events are now forwarded into AG-UI raw logs
+- final response fallback remains in place for non-streaming client implementations
+
+Remaining gap:
+
+- richer tool/reasoning semantics from Anthropic stream events are still ahead
+
 ### `@otto/runner-codex-sdk`
 
 Recommended API:
@@ -80,6 +90,11 @@ Recommended rollout:
 2. raw stream event passthrough
 3. tool-call lifecycle
 4. reasoning events if the stream shape is stable enough
+
+Current assessment:
+
+- this should be the next implementation slice after `claude-sdk`
+- OpenAI Responses streaming appears structurally straightforward for incremental text and raw event passthrough
 
 ### `@otto/runner-google-genai`
 

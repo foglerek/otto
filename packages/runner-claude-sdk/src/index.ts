@@ -19,6 +19,23 @@ type ClaudeClientFactoryArgs = {
 
 type ClaudeMessagesApi = {
   create(input: Record<string, unknown>): Promise<unknown>;
+  stream?(input: Record<string, unknown>): ClaudeMessageStream;
+};
+
+type ClaudeMessageStreamEventName =
+  | "text"
+  | "thinking"
+  | "inputJson"
+  | "contentBlock"
+  | "streamEvent"
+  | "error";
+
+type ClaudeMessageStream = {
+  on(event: ClaudeMessageStreamEventName, handler: (...args: unknown[]) => void): ClaudeMessageStream;
+  finalMessage(): Promise<unknown>;
+  controller?: {
+    abort(): void;
+  };
 };
 
 type ClaudeSdkClient = {
@@ -215,6 +232,167 @@ async function emitAssistantText(args: {
   await args.onEvent({ type: "TEXT_MESSAGE_END", messageId: args.messageId, timestamp, rawEvent: args.rawEvent });
 }
 
+async function emitAssistantTextDelta(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  delta: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent || !args.delta.length) {
+    return;
+  }
+  await args.onEvent({
+    type: "TEXT_MESSAGE_CONTENT",
+    messageId: args.messageId,
+    delta: args.delta,
+    timestamp: Date.now(),
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitAssistantTextStart(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  await args.onEvent({
+    type: "TEXT_MESSAGE_START",
+    messageId: args.messageId,
+    role: "assistant",
+    timestamp: Date.now(),
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitAssistantTextEnd(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  await args.onEvent({
+    type: "TEXT_MESSAGE_END",
+    messageId: args.messageId,
+    timestamp: Date.now(),
+    rawEvent: args.rawEvent,
+  });
+}
+
+function getStreamErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return getErrorMessage(error);
+}
+
+async function runStreamingRequest(args: {
+  stream: ClaudeMessageStream;
+  options: OttoRunnerRunOptions;
+}): Promise<{ response: unknown; streamedText: string }> {
+  const messageId = "claude-sdk-message-1";
+  let streamedText = "";
+  let started = false;
+  let queue = Promise.resolve();
+
+  function enqueue(work: () => Promise<void>): void {
+    queue = queue.then(work);
+  }
+
+  args.stream.on("text", (text, rawEvent) => {
+    const delta = typeof text === "string" ? text : undefined;
+    if (!delta) {
+      return;
+    }
+    enqueue(async () => {
+      if (!started) {
+        started = true;
+        await emitAssistantTextStart({
+          onEvent: args.options.onEvent,
+          messageId,
+          rawEvent,
+        });
+      }
+      streamedText += delta;
+      await emitAssistantTextDelta({
+        onEvent: args.options.onEvent,
+        messageId,
+        delta,
+        rawEvent,
+      });
+    });
+  });
+
+  args.stream.on("thinking", (thinking, rawEvent) => {
+    const text = asString(thinking);
+    if (!text || !args.options.onEvent) {
+      return;
+    }
+    void args.options.onEvent({
+      type: "CUSTOM",
+      name: "otto.thinking",
+      value: { text },
+      timestamp: Date.now(),
+      rawEvent,
+    });
+  });
+
+  args.stream.on("inputJson", (delta, _snapshot, rawEvent) => {
+    if (!args.options.onEvent) {
+      return;
+    }
+    void args.options.onEvent({
+      type: "CUSTOM",
+      name: "otto.tool_input_json_delta",
+      value: { delta },
+      timestamp: Date.now(),
+      rawEvent,
+    });
+  });
+
+  args.stream.on("streamEvent", (event) => {
+    void args.options.onLog?.({
+      runnerId: "claude-sdk",
+      channel: "raw",
+      level: "debug",
+      message: JSON.stringify(event),
+      raw: event,
+    });
+  });
+
+  args.stream.on("error", (error) => {
+    void args.options.onLog?.({
+      runnerId: "claude-sdk",
+      channel: "raw",
+      level: "error",
+      message: getStreamErrorMessage(error),
+      raw: error,
+    });
+  });
+
+  const wrapped = await withTimeout(args.stream.finalMessage(), args.options.timeoutMs ?? 10 * 60_000);
+  if (wrapped.timedOut) {
+    args.stream.controller?.abort();
+    return { response: undefined, streamedText };
+  }
+
+  await queue;
+
+  if (started) {
+    await emitAssistantTextEnd({
+      onEvent: args.options.onEvent,
+      messageId,
+      rawEvent: wrapped.value,
+    });
+  }
+
+  return { response: wrapped.value, streamedText };
+}
+
 class ClaudeSdkRunner implements OttoRunner {
   readonly kind = "claude-sdk";
   readonly id = "claude-sdk";
@@ -256,20 +434,38 @@ class ClaudeSdkRunner implements OttoRunner {
     }
 
     let response: unknown;
+    let streamedText = "";
     try {
-      const wrapped = await withTimeout(
-        client.messages.create(request),
-        options.timeoutMs ?? 10 * 60_000,
-      );
-      if (wrapped.timedOut) {
-        return {
-          success: false,
-          sessionId: options.sessionId,
-          timedOut: true,
-          error: "Claude SDK request timed out.",
-        };
+      if (typeof client.messages.stream === "function") {
+        const streamed = await runStreamingRequest({
+          stream: client.messages.stream(request),
+          options,
+        });
+        response = streamed.response;
+        streamedText = streamed.streamedText;
+        if (response === undefined) {
+          return {
+            success: false,
+            sessionId: options.sessionId,
+            timedOut: true,
+            error: "Claude SDK request timed out.",
+          };
+        }
+      } else {
+        const wrapped = await withTimeout(
+          client.messages.create(request),
+          options.timeoutMs ?? 10 * 60_000,
+        );
+        if (wrapped.timedOut) {
+          return {
+            success: false,
+            sessionId: options.sessionId,
+            timedOut: true,
+            error: "Claude SDK request timed out.",
+          };
+        }
+        response = wrapped.value;
       }
-      response = wrapped.value;
     } catch (error) {
       const message = getErrorMessage(error);
       return {
@@ -280,7 +476,7 @@ class ClaudeSdkRunner implements OttoRunner {
       };
     }
 
-    const outputText = extractTextFromResponse(response);
+    const outputText = streamedText || extractTextFromResponse(response);
     const sessionId = extractSessionId(response) ?? options.sessionId;
 
     if (!outputText) {
@@ -291,12 +487,14 @@ class ClaudeSdkRunner implements OttoRunner {
       };
     }
 
-    await emitAssistantText({
-      onEvent: options.onEvent,
-      messageId: `${this.id}-message-1`,
-      text: outputText,
-      rawEvent: response,
-    });
+    if (!streamedText) {
+      await emitAssistantText({
+        onEvent: options.onEvent,
+        messageId: `${this.id}-message-1`,
+        text: outputText,
+        rawEvent: response,
+      });
+    }
 
     return {
       success: true,

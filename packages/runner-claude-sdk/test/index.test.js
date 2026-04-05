@@ -6,6 +6,35 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const mod = await jiti(new URL("../src/index.ts", import.meta.url).href);
 
+function makeStream(finalMessage, capture) {
+  const handlers = new Map();
+  const stream = {
+    on(event, handler) {
+      handlers.set(event, handler);
+      return stream;
+    },
+    async finalMessage() {
+      capture.push("finalMessage");
+      const streamEvent = handlers.get("streamEvent");
+      if (streamEvent) {
+        streamEvent({ type: "message_start" });
+      }
+      const text = handlers.get("text");
+      if (text) {
+        text("hello ", { type: "content_block_delta" });
+        text("stream", { type: "content_block_delta" });
+      }
+      return finalMessage;
+    },
+    controller: {
+      abort() {
+        capture.push("abort");
+      },
+    },
+  };
+  return stream;
+}
+
 test("claude sdk runner parses text response", async () => {
   let request;
   const runner = mod.createClaudeSdkRunner({
@@ -168,4 +197,54 @@ test("claude sdk runner emits AG-UI assistant events", async () => {
     "TEXT_MESSAGE_END",
   ]);
   assert.equal(events[1].delta, "claude sdk hello");
+});
+
+test("claude sdk runner prefers streaming helper when available", async () => {
+  const events = [];
+  const logs = [];
+  const streamCalls = [];
+  const runner = mod.createClaudeSdkRunner({
+    clientFactory: async () => ({
+      messages: {
+        create: async () => {
+          throw new Error("should not use create when stream helper exists");
+        },
+        stream: () =>
+          makeStream(
+            {
+              id: "msg_stream",
+              content: [{ type: "text", text: "hello stream" }],
+            },
+            streamCalls,
+          ),
+      },
+    }),
+  });
+
+  const out = await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "Do task",
+    cwd: process.cwd(),
+    exec: { run: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }) },
+    onEvent: async (event) => {
+      events.push(event);
+    },
+    onLog: async (entry) => {
+      logs.push(entry);
+    },
+  });
+
+  assert.equal(out.success, true);
+  assert.equal(out.outputText, "hello stream");
+  assert.deepEqual(events.map((event) => event.type), [
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[1].delta, "hello ");
+  assert.equal(events[2].delta, "stream");
+  assert.equal(logs[0].channel, "raw");
+  assert.deepEqual(streamCalls, ["finalMessage"]);
 });
