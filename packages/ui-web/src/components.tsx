@@ -3,6 +3,7 @@ import React from "react";
 import { summarizeAgUiEvent } from "./ag-ui-summary.js";
 import { CollapsibleCard } from "./disclosure.js";
 import { ProjectOverview, type OverviewPanel } from "./project-shell.js";
+import { RunDetailStats, RunProgressStrip } from "./run-detail-chrome.js";
 import {
   classifyAgUiEvent,
   formatDate,
@@ -344,35 +345,6 @@ function ArtifactList(props: { artifacts: RunArtifact[] }): React.JSX.Element {
   );
 }
 
-function RunDetailStats(props: { detail: RunDetailData }): React.JSX.Element {
-  const { detail } = props;
-  return (
-    <div className="grid-two" style={{ marginTop: 20 }}>
-      <div className="panel">
-        <dl className="keyvals">
-          <dt>Created</dt><dd>{formatDate(detail.summary.createdAt)}</dd>
-          <dt>Branch</dt><dd className="mono">{detail.summary.branchName}</dd>
-          <dt>Base</dt><dd className="mono">{detail.summary.baseBranch}</dd>
-          <dt>Worktree</dt><dd className="mono">{detail.worktreePath}</dd>
-          <dt>State file</dt><dd className="mono">{detail.stateFilePath}</dd>
-          <dt>Ticket file</dt><dd className="mono">{detail.ticketFilePath}</dd>
-          {detail.summary.markedDoneAt ? <><dt>Marked done</dt><dd>{formatDate(detail.summary.markedDoneAt)}</dd></> : null}
-        </dl>
-      </div>
-      <div className="panel">
-        <dl className="keyvals">
-          <dt>Queue length</dt><dd>{detail.summary.taskQueueLength}</dd>
-          <dt>Artifacts</dt><dd>{detail.runFiles.length} files</dd>
-          <dt>Plan</dt><dd>{detail.summary.planAvailable ? "present" : "missing"}</dd>
-          <dt>Final report</dt><dd>{detail.summary.finalReportAvailable ? "present" : "missing"}</dd>
-          <dt>Recent events</dt><dd>{detail.recentEvents.length}</dd>
-          <dt>Recent execs</dt><dd>{detail.recentExecs.length}</dd>
-        </dl>
-      </div>
-    </div>
-  );
-}
-
 function RunDetail(props: {
   state: AppState;
   detail: RunDetailData | null;
@@ -413,6 +385,7 @@ function RunDetail(props: {
             </div>
           </div>
         </div>
+        <RunProgressStrip phase={selected.summary.phase} />
         <RunDetailStats detail={selected} />
       </section>
       <section className="grid-two">

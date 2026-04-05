@@ -446,6 +446,71 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
   color: var(--text-muted);
 }
 
+.run-progress-strip {
+  display: flex;
+  align-items: start;
+  justify-content: center;
+  gap: 12px;
+  overflow: auto;
+  padding: 8px 0 4px;
+}
+
+.run-progress-segment {
+  min-width: 172px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(202, 214, 229, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.run-progress-current {
+  background: linear-gradient(180deg, rgba(88, 166, 255, 0.14), rgba(255, 255, 255, 0.02));
+  border-color: rgba(88, 166, 255, 0.28);
+}
+
+.run-progress-done {
+  border-color: rgba(89, 197, 138, 0.2);
+}
+
+.run-progress-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.run-progress-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(202, 214, 229, 0.7);
+  background: transparent;
+}
+
+.run-progress-done .run-progress-dot {
+  background: rgba(89, 197, 138, 0.95);
+  border-color: rgba(89, 197, 138, 1);
+}
+
+.run-progress-current .run-progress-dot {
+  background: rgba(88, 166, 255, 0.95);
+  border-color: rgba(88, 166, 255, 1);
+}
+
+.run-progress-connector {
+  flex: 1;
+  height: 2px;
+  background: rgba(202, 214, 229, 0.28);
+}
+
+.run-progress-label {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
 .prompt-panel {
   border-color: rgba(88, 166, 255, 0.2);
 }

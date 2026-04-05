@@ -1,6 +1,6 @@
 import type { AgUiEvent, AppState, ControlPlaneJob, ControlPlanePrompt, DashboardData } from "./types.js";
 
-const PHASE_ORDER = [
+export const PHASE_ORDER = [
   "ticket-ingestion",
   "decision-cards",
   "plan-feedback",
@@ -75,6 +75,18 @@ export function compactRunStages(phase: string | null): {
 export function presentStageName(value: string | null): string {
   if (!value) return "-";
   return value.replace(/-/g, " ");
+}
+
+export function fullPhaseProgress(phase: string | null): Array<{
+  name: string;
+  state: "done" | "current" | "remaining";
+}> {
+  const normalized = phase && PHASE_ORDER.includes(phase as (typeof PHASE_ORDER)[number]) ? phase : "execution";
+  const index = PHASE_ORDER.indexOf(normalized as (typeof PHASE_ORDER)[number]);
+  return PHASE_ORDER.map((name, itemIndex) => ({
+    name,
+    state: itemIndex < index ? "done" : itemIndex === index ? "current" : "remaining",
+  }));
 }
 
 export function classifyAgUiEvent(event: AgUiEvent): string {
