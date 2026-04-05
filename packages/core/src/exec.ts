@@ -7,11 +7,13 @@ import type { OttoProcessRegistry } from "./process-registry.js";
 export function createNodeExec(args?: {
   registry?: OttoProcessRegistry;
   onStart?: (event: {
+    execId: string;
     label: string;
     cmd: string[];
     cwd: string;
   }) => void | Promise<void>;
   onResult?: (event: {
+    execId: string;
     label: string;
     cmd: string[];
     cwd: string;
@@ -22,10 +24,14 @@ export function createNodeExec(args?: {
     stderr: string;
   }) => void | Promise<void>;
 }): OttoExec {
+  let nextExecId = 1;
+
   return {
     async run(cmd, options): Promise<OttoExecResult> {
       return await new Promise((resolve) => {
         const startedAt = Date.now();
+        const execId = `exec-${nextExecId}`;
+        nextExecId += 1;
         const detached = process.platform !== "win32";
         const child = spawn(cmd[0], cmd.slice(1), {
           cwd: options.cwd,
@@ -42,6 +48,7 @@ export function createNodeExec(args?: {
         });
 
         void args?.onStart?.({
+          execId,
           label: options.label ?? cmd.join(" "),
           cmd,
           cwd: options.cwd,
@@ -106,6 +113,7 @@ export function createNodeExec(args?: {
             timedOut,
           };
           void args?.onResult?.({
+            execId,
             label: options.label ?? cmd.join(" "),
             cmd,
             cwd: options.cwd,
@@ -128,6 +136,7 @@ export function createNodeExec(args?: {
             timedOut,
           };
           void args?.onResult?.({
+            execId,
             label: options.label ?? cmd.join(" "),
             cmd,
             cwd: options.cwd,

@@ -11,6 +11,7 @@ export interface OttoRunEvent {
 export interface OttoExecEvent {
   at: string;
   runId: string;
+  execId: string;
   label: string;
   cmd: string[];
   cwd: string;
@@ -26,6 +27,7 @@ export interface OttoExecEvent {
 export interface OttoExecStartEvent {
   at: string;
   runId: string;
+  execId: string;
   label: string;
   cmd: string[];
   cwd: string;

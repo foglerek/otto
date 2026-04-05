@@ -1,6 +1,7 @@
 import type { OttoConfig } from "@otto/config";
 import type { OttoPromptAdapter } from "@otto/ports";
 
+import { createAgUiEventLogger, mapExecEventToAgUi, mapExecStartToAgUi, mapRunEventToAgUi } from "./ag-ui.js";
 import { createNodeExec } from "./exec.js";
 import {
   attachProcessRegistryExitHandlers,
@@ -60,19 +61,19 @@ export async function runOttoRun(args: {
 }> {
   const registry = createProcessRegistry();
   const detachHandlers = attachProcessRegistryExitHandlers(registry);
-  const fileEvents = createRunEventLogger({
-    runId: args.state.runId,
-    runDir: args.state.runDir,
-  });
+  const fileEvents = createRunEventLogger({ runId: args.state.runId, runDir: args.state.runDir });
+  const agUiEvents = createAgUiEventLogger({ runDir: args.state.runDir });
   const events = {
     append: async (event: OttoRunEvent): Promise<void> => {
       await fileEvents.append(event);
+      await agUiEvents.appendMany(mapRunEventToAgUi(event));
       if (args.onRunEvent) {
         await args.onRunEvent(event);
       }
     },
     appendExec: async (event: OttoExecEvent): Promise<void> => {
       await fileEvents.appendExec(event);
+      await agUiEvents.appendMany(mapExecEventToAgUi(event));
       if (args.onExecEvent) {
         await args.onExecEvent(event);
       }
@@ -81,19 +82,23 @@ export async function runOttoRun(args: {
   const rawExec = createNodeExec({
     registry,
     onStart: async (event) => {
-      if (!args.onExecStart) return;
-      await args.onExecStart({
+      const execStartEvent = {
         at: new Date().toISOString(),
         runId: args.state.runId,
+        execId: event.execId,
         label: event.label,
         cmd: event.cmd,
         cwd: event.cwd,
-      });
+      };
+      await agUiEvents.appendMany(mapExecStartToAgUi(execStartEvent));
+      if (!args.onExecStart) return;
+      await args.onExecStart(execStartEvent);
     },
     onResult: async (event) => {
       await events.appendExec({
         at: new Date().toISOString(),
         runId: args.state.runId,
+        execId: event.execId,
         label: event.label,
         cmd: event.cmd,
         cwd: event.cwd,
@@ -123,10 +128,7 @@ export async function runOttoRun(args: {
       }),
   };
 
-  const stateStore = createOttoStateStore({
-    filePath: args.stateFilePath,
-    initialState: args.state,
-  });
+  const stateStore = createOttoStateStore({ filePath: args.stateFilePath, initialState: args.state });
 
   const runners = resolveWorkflowRunners(args.config);
   const runtime = {

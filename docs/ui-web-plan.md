@@ -204,6 +204,8 @@ Current progress:
 
 - local SSE stream endpoint now pushes dashboard updates, control-plane updates, and selected-run detail updates to the browser
 - browser still keeps a long-interval fallback refresh, but live updates now come primarily from the server stream instead of tight polling
+- per-run AG-UI event streams are now a first-class direction for agent/session events, with Otto emitting `ag-ui-events.jsonl` in each run folder and the server exposing `/api/runs/:runId/ag-ui`
+- current AG-UI mapping uses core lifecycle/exec/custom Otto events; raw runner-native JSON event passthrough is the next likely enhancement where available
 
 This gives the browser a real-time feel without changing Otto's storage model.
 
@@ -231,6 +233,7 @@ Suggested local API surface:
 - `POST /api/tickets/:ticketId/amend`
 - `GET /api/runs`
 - `GET /api/runs/:runId`
+- `GET /api/runs/:runId/ag-ui`
 - `POST /api/runs/start`
 - `POST /api/runs/:runId/resume`
 - `POST /api/runs/:runId/delete`
@@ -318,6 +321,7 @@ Current progress:
 
 - server-side SSE stream now covers dashboard/control-plane/selected-run updates
 - browser shows concurrent job state, multi-prompt inbox, and stream connection status
+- per-run AG-UI event stream now exists for richer agent/session rendering independent of the dashboard snapshot stream
 
 Exit criteria:
 
@@ -370,4 +374,5 @@ That makes the next logical slices:
 2. improve live oversight ergonomics for multiple concurrent workflows
    - broaden live streaming beyond the currently selected run
    - stream richer per-run event/exec slices instead of refreshing whole run-detail payloads
+   - ingest runner-native JSON event streams into AG-UI where available instead of only translated Otto lifecycle/exec events
 3. optionally add lightweight server persistence (for example SQLite) only if coordination actually needs it

@@ -29,6 +29,7 @@
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
+    "@ag-ui/core": "^0.0.50",
     "@otto/config": "workspace:*",
     "@otto/ports": "workspace:*",
     "@otto/ui-web": "workspace:*",

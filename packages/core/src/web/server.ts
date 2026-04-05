@@ -7,8 +7,11 @@ import { UI_WEB_APP_SCRIPT, UI_WEB_STYLES, renderUiWebDocument } from "@otto/ui-
 import { ensureRepoSetup } from "../repo-setup.js";
 import { createManagedTicket, deleteManagedRun, ingestManagedTicket, listManagedTickets } from "../services/actions.js";
 import { mergeBackManagedRun, resumeManagedRun, startManagedRun } from "../services/run-actions.js";
+import { getStateFilePathForRunId } from "../runs/paths.js";
+import { loadOttoState } from "../state.js";
 import { loadWebDashboardData, loadWebRunDetailData, resolveWebRepoContext } from "../services/web.js";
 import { createOttoWebControlPlane, type OttoWebControlPlane } from "./control-plane.js";
+import { streamAgUiRunEvents } from "./ag-ui-stream.js";
 import { OttoWebLiveStreamHub } from "./live-stream.js";
 
 export interface OttoWebServerHandle {
@@ -233,7 +236,24 @@ async function handleDynamicReadRoutes(args: {
   req: http.IncomingMessage;
   res: http.ServerResponse;
   controlPlane: OttoWebControlPlane;
+  artifactRootDir: string;
 }): Promise<boolean> {
+  const agUiMatch = args.pathname.match(/^\/api\/runs\/([^/]+)\/ag-ui$/);
+  if (agUiMatch && args.method === "GET") {
+    const runId = decodeURIComponent(agUiMatch[1]);
+    const stateFilePath = getStateFilePathForRunId({
+      artifactRootDir: args.artifactRootDir,
+      runId,
+    });
+    const state = await loadOttoState(stateFilePath);
+    await streamAgUiRunEvents({
+      req: args.req,
+      res: args.res,
+      runDir: state.runDir,
+    });
+    return true;
+  }
+
   const runMatch = args.pathname.match(/^\/api\/runs\/([^/]+)$/);
   if (runMatch) {
     writeJson(args.res, 200, await loadWebRunDetailData({
@@ -299,6 +319,7 @@ async function createHttpServer(cwd: string): Promise<{
         controlPlane,
         requestUrl,
         liveStreamHub,
+        artifactRootDir: artifactPaths.rootDir,
       };
 
       if (await handleSimpleApiRoutes(routeArgs)) {

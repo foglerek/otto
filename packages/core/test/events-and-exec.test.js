@@ -26,6 +26,7 @@ test("run event logger writes events and exec jsonl files", async () => {
   await logger.appendExec({
     at: new Date().toISOString(),
     runId: "2026-02-03-test",
+    execId: "exec-1",
     label: "demo",
     cmd: ["node", "-v"],
     cwd: runDir,
@@ -45,6 +46,7 @@ test("run event logger writes events and exec jsonl files", async () => {
   assert.equal(eventRow.type, "run_started");
   assert.equal(eventRow.runId, "2026-02-03-test");
   assert.equal(execRow.label, "demo");
+  assert.equal(execRow.execId, "exec-1");
   assert.equal(execRow.exitCode, 0);
 });
 
@@ -67,6 +69,7 @@ test("node exec emits onResult telemetry", async () => {
   assert.equal(result.exitCode, 0);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].label, "unit-exec");
+  assert.equal(seen[0].execId, "exec-1");
   assert.equal(seen[0].exitCode, 0);
   assert.equal(Array.isArray(seen[0].cmd), true);
   assert.equal(typeof seen[0].durationMs, "number");
