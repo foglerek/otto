@@ -75,6 +75,16 @@ Current mapping:
 3. Decide whether any native records should become `REASONING_*` events.
 4. Decide whether SDK runners need richer semantics than final assistant text for v1.
 
+## Current Boundary / Blocker
+
+The remaining semantic gap is mostly on SDK-backed runners.
+
+- current SDK integrations call non-streaming request APIs and only receive a final response object
+- that is sufficient for final assistant-message AG-UI events
+- it is not sufficient for richer live semantics like streamed reasoning, incremental text, or tool-call lifecycle without changing the SDK integration approach
+
+So the next meaningful step for richer SDK semantics is not more mapping logic; it is a product/implementation choice to adopt streaming SDK APIs where each provider supports them.
+
 ## Additional CLI Findings
 
 ### `opencode-cli`
