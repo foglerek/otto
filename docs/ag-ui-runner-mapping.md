@@ -30,7 +30,7 @@ Legend:
 | `claude-sdk` | final only | pending | pending | no | Emits final assistant text event from SDK response. |
 | `codex-sdk` | final only | pending | pending | no | Emits final assistant text event from SDK response. |
 | `google-genai` | final only | pending | pending | no | Emits final assistant text event from SDK response. |
-| `opencode-sdk` | final only | pending | pending | no | Emits final assistant text event from SDK response. |
+| `opencode-sdk` | native live (session events) or final fallback | native live (session events) or pending fallback | custom reasoning | yes via session events | Prefers session/event-subscription path; falls back to coarse response parsing if only `run`/`responses.create` exists. |
 
 ## Direct CLI Findings
 
@@ -73,7 +73,7 @@ Current mapping:
 1. Validate `claude-code` and `codex-cli` semantics during real dogfooding runs.
 2. Validate `opencode-cli` and `gemini-cli` tool semantics on real runs now that they have live tool-call mappings.
 3. Decide whether any native records should become `REASONING_*` events.
-4. Decide whether SDK runners need richer semantics than final assistant text for v1.
+4. Decide whether SDK runners need richer reasoning semantics than the current text/tool baseline for v1.
 
 ## Current Boundary / Blocker
 

@@ -157,9 +157,15 @@ Recommended rollout:
 Current blocker:
 
 - this likely needs a different implementation shape than the other SDK runners because the natural primitive is session/event subscription rather than a single request returning a stream
-- this is now the main remaining SDK streaming blocker after `claude-sdk`, `codex-sdk`, and `google-genai`
+- this was the main remaining SDK streaming blocker after `claude-sdk`, `codex-sdk`, and `google-genai`
 
 Detailed plan reference: `docs/ag-ui-opencode-sdk-plan.md`
+
+Current progress:
+
+- `opencode-sdk` now supports a session/event-subscription streaming path when the client exposes `session.*` plus `event.subscribe()`
+- it still falls back to the older coarse `run(...)` / `responses.create(...)` path when only that API surface is available
+- the event-driven path now emits assistant text, tool-call lifecycle, raw native events, and custom reasoning events from session-scoped event updates
 
 ## Not Worth Doing Yet
 

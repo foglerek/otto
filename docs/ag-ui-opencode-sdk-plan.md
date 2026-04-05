@@ -115,9 +115,18 @@ Good enough for v1:
 
 ## Current Blocker
 
-This runner is now the main remaining AG-UI streaming blocker because it requires:
+This runner required:
 
 - a different session/event-subscription architecture than the other SDK runners
 - careful event filtering by session/message scope
 
-So this should be implemented as a dedicated slice rather than forced into the same pattern as Anthropic/OpenAI/Google SDK runners.
+That dedicated slice is now implemented in the runner:
+
+- it prefers a session/event-subscription client shape when available
+- it filters events by session id
+- it emits AG-UI assistant text and tool-call lifecycle from session event updates
+- it falls back to the older coarse response path when only that API surface is available
+
+Remaining risk:
+
+- this path is tested with fake clients and documented server event shapes, but still deserves real-world dogfooding validation against the actual OpenCode SDK/server before release.

@@ -5,6 +5,16 @@ import type {
   OttoRunnerRunOptions,
 } from "@otto/ports";
 
+import {
+  asString,
+  isRecord,
+  isSessionEventClient,
+  runSessionStreaming,
+  type JsonRecord,
+  type OpencodeEventClient,
+  type OpencodeSessionClient,
+} from "./streaming.js";
+
 type OpencodeModelConfig = {
   model?: string;
   variant?: string;
@@ -27,7 +37,10 @@ type OpencodeResponsesClient = {
   };
 };
 
-type OpencodeSdkClient = OpencodeRunClient | OpencodeResponsesClient;
+type OpencodeSdkClient =
+  | OpencodeRunClient
+  | OpencodeResponsesClient
+  | (OpencodeSessionClient & OpencodeEventClient);
 
 type OpencodeClientFactory = (
   args: OpencodeClientFactoryArgs,
@@ -53,8 +66,6 @@ const DEFAULT_BY_ROLE: Record<OttoRole, OpencodeModelConfig> = {
   summarize: { model: "openai/gpt-5.3-codex", variant: "high" },
 };
 
-type JsonRecord = Record<string, unknown>;
-
 type TimeoutResult<T> =
   | { timedOut: true }
   | { timedOut: false; value: T };
@@ -62,18 +73,6 @@ type TimeoutResult<T> =
 type OpencodeSdkConstructor = new (options?: {
   apiKey?: string;
 }) => OpencodeSdkClient;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function asString(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -251,26 +250,49 @@ function resolveConstructor(mod: unknown): OpencodeSdkConstructor | null {
 }
 
 async function createDefaultClient(args: OpencodeClientFactoryArgs): Promise<OpencodeSdkClient> {
-  try {
-    const moduleId = "opencode-sdk";
-    const mod = await import(moduleId);
-    if (isRecord(mod) && typeof mod.createClient === "function") {
-      const result = await mod.createClient(args.apiKey ? { apiKey: args.apiKey } : {});
-      if (isRecord(result)) {
-        return result as OpencodeSdkClient;
-      }
-    }
+  const moduleIds = ["@opencode-ai/sdk", "opencode-sdk"];
 
-    const Ctor = resolveConstructor(mod);
-    if (!Ctor) {
-      throw new Error("OpenCode SDK constructor not found in module exports.");
+  for (const moduleId of moduleIds) {
+    try {
+      const mod = await import(moduleId);
+      if (isRecord(mod) && typeof mod.createOpencodeClient === "function") {
+        const baseUrl = process.env.OPENCODE_BASE_URL;
+        const result = mod.createOpencodeClient(
+          baseUrl ? { baseUrl } : {},
+        );
+        if (isRecord(result)) {
+          return result as OpencodeSdkClient;
+        }
+      }
+
+      if (isRecord(mod) && typeof mod.createClient === "function") {
+        const result = await mod.createClient(args.apiKey ? { apiKey: args.apiKey } : {});
+        if (isRecord(result)) {
+          return result as OpencodeSdkClient;
+        }
+      }
+
+      if (isRecord(mod) && typeof mod.createOpencode === "function") {
+        const created = await mod.createOpencode(
+          args.apiKey ? { config: { auth: { apiKey: args.apiKey } } } : {},
+        );
+        if (isRecord(created) && isRecord(created.client)) {
+          return created.client as OpencodeSdkClient;
+        }
+      }
+
+      const Ctor = resolveConstructor(mod);
+      if (Ctor) {
+        return new Ctor(args.apiKey ? { apiKey: args.apiKey } : undefined);
+      }
+    } catch {
+      // try next candidate module id
     }
-    return new Ctor(args.apiKey ? { apiKey: args.apiKey } : undefined);
-  } catch (error) {
-    throw new Error(
-      `OpenCode SDK unavailable: ${getErrorMessage(error)}. Install opencode-sdk and set OPENCODE_API_KEY.`,
-    );
   }
+
+  throw new Error(
+    "OpenCode SDK unavailable: install @opencode-ai/sdk (preferred) or opencode-sdk and set OPENCODE_API_KEY.",
+  );
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<TimeoutResult<T>> {
@@ -346,6 +368,15 @@ class OpencodeSdkRunner implements OttoRunner {
       phaseName: options.phaseName,
       jsonSchema: options.jsonSchema,
     };
+
+    if (isSessionEventClient(client)) {
+      return await runSessionStreaming({
+        client,
+        options,
+        model: cfg.model,
+        variant: cfg.variant,
+      });
+    }
 
     let raw: unknown;
     try {
