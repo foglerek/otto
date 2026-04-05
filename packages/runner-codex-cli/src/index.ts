@@ -259,6 +259,38 @@ function parseStreamJson(stdout: string, runnerId: string): ParsedOutput {
   return parsed;
 }
 
+async function emitAssistantText(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  text: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent || !args.text.trim()) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TEXT_MESSAGE_START",
+    messageId: args.messageId,
+    role: "assistant",
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TEXT_MESSAGE_CONTENT",
+    messageId: args.messageId,
+    delta: args.text,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TEXT_MESSAGE_END",
+    messageId: args.messageId,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
 class CodexCliRunner implements OttoRunner {
   readonly kind = "codex-cli";
   readonly id = "codex-cli";
@@ -270,12 +302,47 @@ class CodexCliRunner implements OttoRunner {
     const binary = this.options.binary ?? DEFAULT_BINARY;
     const cmd = buildArgs({ binary, run: options, config: cfg });
 
+    let messageCount = 0;
+    let lastLiveMessage = "";
     const execResult = await options.exec.run(cmd, {
       cwd: options.cwd,
       stdin: options.prompt,
       timeoutMs: options.timeoutMs ?? 10 * 60_000,
       label: `codex:${options.phaseName}:${options.role}`,
       env: cfg.env,
+      onStdoutLine: async (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const obj = parseJsonLine(trimmed);
+        if (!obj) return;
+
+        const message = extractAgentMessage(obj);
+        if (message && message !== lastLiveMessage) {
+          lastLiveMessage = message;
+          messageCount += 1;
+          await emitAssistantText({
+            onEvent: options.onEvent,
+            messageId: `${this.id}-message-${messageCount}`,
+            text: message,
+            rawEvent: obj,
+          });
+          return;
+        }
+
+        if (isFinalRecord(obj)) {
+          const textCandidate = extractTextCandidate(obj);
+          if (textCandidate && textCandidate !== lastLiveMessage) {
+            lastLiveMessage = textCandidate;
+            messageCount += 1;
+            await emitAssistantText({
+              onEvent: options.onEvent,
+              messageId: `${this.id}-message-${messageCount}`,
+              text: textCandidate,
+              rawEvent: obj,
+            });
+          }
+        }
+      },
     });
 
     const parsed = parseStreamJson(execResult.stdout, this.id);

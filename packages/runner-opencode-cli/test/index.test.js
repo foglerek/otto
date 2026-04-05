@@ -10,6 +10,13 @@ function makeExec(result, calls) {
   return {
     async run(cmd, options) {
       calls.push({ cmd, options });
+      if (typeof options.onStdoutLine === "function") {
+        for (const line of String(result.stdout).split(/\r?\n/)) {
+          if (line.length > 0) {
+            await options.onStdoutLine(line);
+          }
+        }
+      }
       return result;
     },
   };
@@ -407,4 +414,46 @@ test("opencode runner ignores schema words inside json text stream", async () =>
   assert.equal(out.outputText, "OpenCode CLI emitted an internal schema/validation failure.<OK>");
   assert.equal(out.sessionId, "ses_json_stream");
   assert.equal(calls.length, 1);
+});
+
+test("opencode runner emits AG-UI assistant events from text payloads", async () => {
+  const runner = mod.createOpencodeCliRunner();
+  const calls = [];
+  const events = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout:
+        line({
+          type: "text",
+          sessionID: "ses_live",
+          part: { type: "text", sessionID: "ses_live", text: "live hello" },
+        }) + line({
+          type: "step_finish",
+          sessionID: "ses_live",
+          part: { type: "step-finish", sessionID: "ses_live" },
+        }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "do thing",
+    cwd: process.cwd(),
+    exec,
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[1].delta, "live hello");
 });

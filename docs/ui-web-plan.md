@@ -155,6 +155,12 @@ Important architecture clarification:
 - `.otto/` remains the durable source of truth for run/workflow state
 - if the web server exits, active workflows may stop and later resume from Otto state; exact in-flight continuation is not a requirement
 
+Current AG-UI architecture direction:
+
+- runners should emit standardized AG-UI events directly where possible
+- core should persist those AG-UI events to each run folder for replayability
+- the server should proxy run-scoped AG-UI streams to the UI rather than inventing a separate event schema
+
 Short term:
 
 - bridge the existing `OttoPromptAdapter` model on the server so browser-driven `start` / `resume` can work soon
@@ -207,6 +213,7 @@ Current progress:
 - per-run AG-UI event streams are now a first-class direction for agent/session events, with Otto emitting `ag-ui-events.jsonl` in each run folder and the server exposing `/api/runs/:runId/ag-ui`
 - current AG-UI mapping uses core lifecycle/exec/custom Otto events, and now also captures raw runner-native logs where the runner exposes them
 - current runner-native capture is partial: `claude-code`, `codex-cli`, and `opencode-cli` now forward raw parsed lines into AG-UI `RAW` events; broader runner coverage remains ahead
+- runners now also emit standardized assistant message AG-UI events directly during execution where line-streaming makes that possible
 - the current web UI now subscribes to the selected run's AG-UI stream and renders a basic event feed alongside artifact/detail views
 
 This gives the browser a real-time feel without changing Otto's storage model.

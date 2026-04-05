@@ -1,7 +1,7 @@
 import type { OttoConfig } from "@otto/config";
-import type { OttoPromptAdapter, OttoRunner } from "@otto/ports";
+import type { OttoPromptAdapter, OttoRunner, OttoRunnerEvent } from "@otto/ports";
 
-import { createAgUiEventLogger, mapExecEventToAgUi, mapExecStartToAgUi, mapRunEventToAgUi, mapRunnerLogToAgUi } from "./ag-ui.js";
+import { createAgUiEventLogger, mapExecEventToAgUi, mapExecStartToAgUi, mapRunEventToAgUi, mapRunnerLogToAgUi, normalizeRunnerEventToAgUi } from "./ag-ui.js";
 import { createNodeExec } from "./exec.js";
 import {
   attachProcessRegistryExitHandlers,
@@ -49,6 +49,7 @@ function mergeExecEnv(
 function wrapRunnerWithAgUiLogs(args: {
   runner: OttoRunner;
   appendLogs: (events: ReturnType<typeof mapRunnerLogToAgUi>) => Promise<void>;
+  appendEvent: (event: OttoRunnerEvent) => Promise<void>;
 }): OttoRunner {
   return {
     kind: args.runner.kind,
@@ -56,6 +57,10 @@ function wrapRunnerWithAgUiLogs(args: {
     run: async (options) =>
       await args.runner.run({
         ...options,
+        onEvent: async (event) => {
+          await args.appendEvent(event);
+          await options.onEvent?.(event);
+        },
         onLog: async (entry) => {
           await args.appendLogs(mapRunnerLogToAgUi(entry));
           await options.onLog?.(entry);
@@ -157,10 +162,10 @@ export async function runOttoRun(args: {
     stateStore,
     state: stateStore.state,
     runners: {
-      lead: wrapRunnerWithAgUiLogs({ runner: runners.lead, appendLogs: agUiEvents.appendMany }),
-      task: wrapRunnerWithAgUiLogs({ runner: runners.task, appendLogs: agUiEvents.appendMany }),
-      reviewer: wrapRunnerWithAgUiLogs({ runner: runners.reviewer, appendLogs: agUiEvents.appendMany }),
-      summarize: wrapRunnerWithAgUiLogs({ runner: runners.summarize, appendLogs: agUiEvents.appendMany }),
+      lead: wrapRunnerWithAgUiLogs({ runner: runners.lead, appendLogs: agUiEvents.appendMany, appendEvent: async (event) => await agUiEvents.append(normalizeRunnerEventToAgUi(event)) }),
+      task: wrapRunnerWithAgUiLogs({ runner: runners.task, appendLogs: agUiEvents.appendMany, appendEvent: async (event) => await agUiEvents.append(normalizeRunnerEventToAgUi(event)) }),
+      reviewer: wrapRunnerWithAgUiLogs({ runner: runners.reviewer, appendLogs: agUiEvents.appendMany, appendEvent: async (event) => await agUiEvents.append(normalizeRunnerEventToAgUi(event)) }),
+      summarize: wrapRunnerWithAgUiLogs({ runner: runners.summarize, appendLogs: agUiEvents.appendMany, appendEvent: async (event) => await agUiEvents.append(normalizeRunnerEventToAgUi(event)) }),
     },
     reminders: {
       techLead: [],

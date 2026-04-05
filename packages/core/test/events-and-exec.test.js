@@ -74,3 +74,22 @@ test("node exec emits onResult telemetry", async () => {
   assert.equal(Array.isArray(seen[0].cmd), true);
   assert.equal(typeof seen[0].durationMs, "number");
 });
+
+test("node exec streams stdout lines before process exit", async () => {
+  const lines = [];
+  const exec = execMod.createNodeExec();
+
+  const result = await exec.run(
+    [process.execPath, "-e", "console.log('alpha'); console.log('beta')"],
+    {
+      cwd: process.cwd(),
+      label: "line-stream-test",
+      onStdoutLine: async (line) => {
+        lines.push(line);
+      },
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(lines, ["alpha", "beta"]);
+});

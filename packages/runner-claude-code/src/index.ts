@@ -210,6 +210,39 @@ function parseStreamJsonOutput(args: {
   return { sessionId, finalText, finalIsError, logs };
 }
 
+async function emitAssistantText(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  text: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent || !args.text.trim()) {
+    return;
+  }
+
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TEXT_MESSAGE_START",
+    messageId: args.messageId,
+    role: "assistant",
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TEXT_MESSAGE_CONTENT",
+    messageId: args.messageId,
+    delta: args.text,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TEXT_MESSAGE_END",
+    messageId: args.messageId,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
 function computeContextOverflow(args: {
   stdout: string;
   stderr: string;
@@ -235,12 +268,30 @@ class ClaudeCodeRunner implements OttoRunner {
     const timeoutMs = getTimeoutMs(options.timeoutMs);
     const claudeArgs = buildClaudeArgs(options, modelConfig);
 
+    let messageCount = 0;
     const execResult = await options.exec.run(["claude", ...claudeArgs], {
       cwd: options.cwd,
       env: buildClaudeEnv(modelConfig),
       timeoutMs,
       stdin: options.prompt,
       label: `claude:${options.phaseName}:${options.role}`,
+      onStdoutLine: async (line) => {
+        const parsed = parseStreamJsonLine(line);
+        if (!parsed || parsed.type !== "result") {
+          return;
+        }
+        const resultText = typeof parsed.result === "string" ? parsed.result : undefined;
+        if (!resultText || parsed.is_error === true) {
+          return;
+        }
+        messageCount += 1;
+        await emitAssistantText({
+          onEvent: options.onEvent,
+          messageId: `${this.id}-message-${messageCount}`,
+          text: resultText,
+          rawEvent: parsed,
+        });
+      },
     });
 
     const parsed = parseStreamJsonOutput({

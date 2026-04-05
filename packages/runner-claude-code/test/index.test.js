@@ -10,6 +10,13 @@ function makeExec(result, capture) {
   return {
     async run(cmd, options) {
       capture.push({ cmd, options });
+      if (typeof options.onStdoutLine === "function") {
+        for (const line of String(result.stdout).split(/\r?\n/)) {
+          if (line.length > 0) {
+            await options.onStdoutLine(line);
+          }
+        }
+      }
       return result;
     },
   };
@@ -249,4 +256,37 @@ test("runner supports settings path and inline settings", async () => {
   const leadSettingsIdx = leadCmd.indexOf("--settings");
   assert.notEqual(leadSettingsIdx, -1);
   assert.equal(leadCmd[leadSettingsIdx + 1], "/tmp/claude.settings.json");
+});
+
+test("runner emits AG-UI assistant events", async () => {
+  const runner = mod.createClaudeCodeRunner();
+  const calls = [];
+  const events = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout: resultLine({ type: "result", result: "hello from claude", is_error: false }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  await runner.run({
+    role: "lead",
+    phaseName: "plan",
+    prompt: "hello",
+    cwd: process.cwd(),
+    exec,
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[1].delta, "hello from claude");
 });

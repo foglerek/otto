@@ -10,6 +10,13 @@ function makeExec(result, calls) {
   return {
     async run(cmd, options) {
       calls.push({ cmd, options });
+      if (typeof options.onStdoutLine === "function") {
+        for (const line of String(result.stdout).split(/\r?\n/)) {
+          if (line.length > 0) {
+            await options.onStdoutLine(line);
+          }
+        }
+      }
       return result;
     },
   };
@@ -308,4 +315,43 @@ test("codex runner flags context overflow from error result", async () => {
   assert.equal(out.sessionId, "s-ctx");
   assert.equal(out.contextOverflow, true);
   assert.match(out.error ?? "", /Prompt is too long/i);
+});
+
+test("codex runner emits AG-UI assistant events from agent messages", async () => {
+  const runner = mod.createCodexCliRunner();
+  const calls = [];
+  const events = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout:
+        line({ type: "thread.started", thread_id: "thread-live" }) +
+        line({
+          type: "item.completed",
+          item: { type: "agent_message", text: "codex says hi" },
+        }) +
+        line({ type: "turn.completed" }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  await runner.run({
+    role: "lead",
+    phaseName: "plan",
+    prompt: "plan",
+    cwd: process.cwd(),
+    exec,
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[1].delta, "codex says hi");
 });

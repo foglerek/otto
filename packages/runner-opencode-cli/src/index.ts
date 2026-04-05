@@ -10,7 +10,7 @@ import type {
   OttoRunnerRunOptions,
 } from "@otto/ports";
 
-import { parseStreamJson, type ParsedOutput } from "./parsing.js";
+import { analyzeLine, parseStreamJson, type ParsedOutput } from "./parsing.js";
 
 type OpencodeModelConfig = {
   model?: string;
@@ -135,6 +135,38 @@ function buildEnv(config: OpencodeModelConfig): Record<string, string> | undefin
   return Object.keys(env).length > 0 ? env : undefined;
 }
 
+async function emitAssistantText(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  text: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent || !args.text.trim()) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TEXT_MESSAGE_START",
+    messageId: args.messageId,
+    role: "assistant",
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TEXT_MESSAGE_CONTENT",
+    messageId: args.messageId,
+    delta: args.text,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TEXT_MESSAGE_END",
+    messageId: args.messageId,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
 class OpencodeCliRunner implements OttoRunner {
   readonly kind = "opencode-cli";
   readonly id = "opencode-cli";
@@ -146,11 +178,33 @@ class OpencodeCliRunner implements OttoRunner {
     cmd: string[];
     env?: Record<string, string>;
   }): Promise<RunnerAttempt> {
+    let messageCount = 0;
+    let lastLiveMessage = "";
     const execResult = await args.runOptions.exec.run(args.cmd, {
       cwd: args.runOptions.cwd,
       timeoutMs: args.runOptions.timeoutMs ?? 10 * 60_000,
       label: `opencode:${args.runOptions.phaseName}:${args.runOptions.role}`,
       env: args.env,
+      onStdoutLine: async (line) => {
+        const analysis = analyzeLine(line);
+        if (!analysis?.text) {
+          return;
+        }
+        if (!analysis.isTextPayload && !analysis.isFinalPayload) {
+          return;
+        }
+        if (analysis.text === lastLiveMessage) {
+          return;
+        }
+        lastLiveMessage = analysis.text;
+        messageCount += 1;
+        await emitAssistantText({
+          onEvent: args.runOptions.onEvent,
+          messageId: `${this.id}-message-${messageCount}`,
+          text: analysis.text,
+          rawEvent: analysis.raw,
+        });
+      },
     });
 
     const parsed = parseStreamJson(execResult.stdout);

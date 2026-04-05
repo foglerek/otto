@@ -17,12 +17,19 @@ export interface OttoRunnerLog {
   raw?: unknown;
 }
 
+export type OttoRunnerEvent = Record<string, unknown> & {
+  type: string;
+  timestamp?: number;
+  rawEvent?: unknown;
+};
+
 export interface OttoRunnerRunOptions {
   role: OttoRole;
   phaseName: string;
   prompt: string;
   cwd: string;
   exec: OttoExec;
+  onEvent?: (event: OttoRunnerEvent) => void | Promise<void>;
   onLog?: (entry: OttoRunnerLog) => void | Promise<void>;
   sessionId?: string;
   timeoutMs?: number;
@@ -63,6 +70,8 @@ export interface OttoExec {
       timeoutMs?: number;
       stdin?: string;
       label?: string;
+      onStdoutLine?: (line: string) => void | Promise<void>;
+      onStderrLine?: (line: string) => void | Promise<void>;
     },
   ): Promise<OttoExecResult>;
 }

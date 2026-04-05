@@ -13,6 +13,13 @@ export type ParsedOutput = {
   logs: OttoRunnerLog[];
 };
 
+export type ParsedLineAnalysis = {
+  raw?: unknown;
+  text?: string;
+  isTextPayload: boolean;
+  isFinalPayload: boolean;
+};
+
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -287,4 +294,29 @@ export function parseStreamJson(stdout: string): ParsedOutput {
   }
 
   return parsed;
+}
+
+export function analyzeLine(line: string): ParsedLineAnalysis | null {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const obj = parseJsonLine(trimmed);
+  if (!obj) {
+    return {
+      raw: trimmed,
+      isTextPayload: false,
+      isFinalPayload: false,
+    };
+  }
+
+  const payloadType = extractPayloadType(obj);
+  const partType = extractPartType(obj);
+  return {
+    raw: obj,
+    text: extractTextCandidate(obj),
+    isTextPayload: payloadType === "text" || partType === "text",
+    isFinalPayload: isFinalRecord(obj),
+  };
 }
