@@ -82,24 +82,26 @@ textarea {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 372px minmax(0, 1fr);
 }
 
 .sidebar {
   border-right: 1px solid var(--border);
-  background: rgba(10, 15, 22, 0.72);
+  background: rgba(9, 14, 20, 0.82);
   backdrop-filter: blur(14px);
   padding: 24px;
   display: grid;
   align-content: start;
-  gap: 20px;
+  gap: 16px;
+  max-height: 100vh;
+  overflow: auto;
 }
 
 .main {
-  padding: 24px;
+  padding: 28px;
   display: grid;
   align-content: start;
-  gap: 20px;
+  gap: 24px;
 }
 
 .header-block,
@@ -134,6 +136,10 @@ textarea {
   gap: 12px;
 }
 
+.summary-grid-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .summary-grid article {
   padding: 16px;
 }
@@ -147,9 +153,22 @@ textarea {
 
 .title {
   margin: 8px 0 0;
-  font-size: 28px;
+  font-size: 26px;
   line-height: 1.05;
   letter-spacing: -0.03em;
+}
+
+.hero-title,
+.detail-title {
+  font-size: 40px;
+  line-height: 0.94;
+  letter-spacing: -0.045em;
+}
+
+.hero-copy {
+  max-width: 32ch;
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 .subtle {
@@ -173,6 +192,10 @@ textarea {
   gap: 12px;
 }
 
+.sidebar-stack {
+  gap: 16px;
+}
+
 .runs-list {
   display: grid;
   gap: 10px;
@@ -181,7 +204,7 @@ textarea {
 .run-row {
   width: 100%;
   border-radius: var(--radius);
-  padding: 14px;
+  padding: 16px;
   cursor: pointer;
   text-align: left;
   color: inherit;
@@ -254,8 +277,8 @@ textarea {
 
 .grid-two {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.9fr);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.95fr);
+  gap: 24px;
 }
 
 .artifact-grid,
@@ -308,6 +331,10 @@ textarea {
   display: grid;
   justify-items: end;
   gap: 10px;
+}
+
+.detail-header {
+  align-items: start;
 }
 
 .button {
@@ -426,6 +453,10 @@ textarea {
   border-color: rgba(242, 109, 120, 0.24);
 }
 
+.ag-ui-card-raw {
+  border-color: rgba(202, 214, 229, 0.12);
+}
+
 .ticket-row {
   display: flex;
   align-items: center;
@@ -458,6 +489,33 @@ textarea {
 
 .button-secondary {
   background: rgba(255, 255, 255, 0.04);
+}
+
+.hero-card {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(202, 214, 229, 0.12);
+  background:
+    radial-gradient(circle at top right, rgba(88, 166, 255, 0.1), transparent 34%),
+    linear-gradient(180deg, rgba(20, 30, 44, 0.98), rgba(13, 19, 29, 0.98));
+  box-shadow: var(--shadow);
+}
+
+.hero-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-tight {
+  gap: 10px;
+}
+
+.repo-path {
+  overflow-wrap: anywhere;
 }
 
 .prompt-panel {
