@@ -85,6 +85,8 @@ The remaining semantic gap is mostly on SDK-backed runners.
 
 So the next meaningful step for richer SDK semantics is not more mapping logic; it is a product/implementation choice to adopt streaming SDK APIs where each provider supports them.
 
+Streaming adoption plan reference: `docs/ag-ui-sdk-streaming-plan.md`
+
 ## Additional CLI Findings
 
 ### `opencode-cli`

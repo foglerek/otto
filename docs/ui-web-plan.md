@@ -168,6 +168,7 @@ Near-term validation priority:
 - finish an explicit runner-by-runner AG-UI coverage map before v1 release
 
 Current mapping reference: `docs/ag-ui-runner-mapping.md`
+SDK streaming adoption reference: `docs/ag-ui-sdk-streaming-plan.md`
 
 Short term:
 
