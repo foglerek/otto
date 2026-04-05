@@ -16,6 +16,11 @@ type GoogleClientFactoryArgs = {
 
 type GoogleModelsApi = {
   generateContent(input: Record<string, unknown>): Promise<unknown>;
+  generateContentStream?(input: Record<string, unknown>): Promise<GoogleGenAiStream> | GoogleGenAiStream;
+};
+
+type GoogleGenAiStream = AsyncIterable<unknown> & {
+  response?: Promise<unknown>;
 };
 
 type GoogleGenAiClient = {
@@ -232,6 +237,113 @@ async function emitAssistantText(args: {
   await args.onEvent({ type: "TEXT_MESSAGE_END", messageId: args.messageId, timestamp, rawEvent: args.rawEvent });
 }
 
+async function emitAssistantTextStart(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  await args.onEvent({
+    type: "TEXT_MESSAGE_START",
+    messageId: args.messageId,
+    role: "assistant",
+    timestamp: Date.now(),
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitAssistantTextDelta(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  delta: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent || !args.delta.length) {
+    return;
+  }
+  await args.onEvent({
+    type: "TEXT_MESSAGE_CONTENT",
+    messageId: args.messageId,
+    delta: args.delta,
+    timestamp: Date.now(),
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitAssistantTextEnd(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  await args.onEvent({
+    type: "TEXT_MESSAGE_END",
+    messageId: args.messageId,
+    timestamp: Date.now(),
+    rawEvent: args.rawEvent,
+  });
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return Boolean(value) && typeof (value as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function";
+}
+
+async function runStreamingRequest(args: {
+  stream: GoogleGenAiStream;
+  options: OttoRunnerRunOptions;
+}): Promise<{ response: unknown; streamedText: string; timedOut: boolean }> {
+  const messageId = "google-genai-message-1";
+  let streamedText = "";
+  let started = false;
+
+  const consume = (async () => {
+    for await (const chunk of args.stream) {
+      const text = extractTextFromResponse(chunk);
+      if (!text) {
+        continue;
+      }
+      if (!started) {
+        started = true;
+        await emitAssistantTextStart({
+          onEvent: args.options.onEvent,
+          messageId,
+          rawEvent: chunk,
+        });
+      }
+      const delta = text.startsWith(streamedText) ? text.slice(streamedText.length) : text;
+      streamedText = text;
+      if (delta) {
+        await emitAssistantTextDelta({
+          onEvent: args.options.onEvent,
+          messageId,
+          delta,
+          rawEvent: chunk,
+        });
+      }
+    }
+    return args.stream.response ? await args.stream.response : undefined;
+  })();
+
+  const wrapped = await withTimeout(consume, args.options.timeoutMs ?? 10 * 60_000);
+  if (wrapped.timedOut) {
+    return { response: undefined, streamedText, timedOut: true };
+  }
+
+  if (started) {
+    await emitAssistantTextEnd({
+      onEvent: args.options.onEvent,
+      messageId,
+      rawEvent: wrapped.value,
+    });
+  }
+
+  return { response: wrapped.value, streamedText, timedOut: false };
+}
+
 class GoogleGenAiRunner implements OttoRunner {
   readonly kind = "google-genai";
   readonly id = "google-genai";
@@ -273,20 +385,43 @@ class GoogleGenAiRunner implements OttoRunner {
     }
 
     let response: unknown;
+    let streamedText = "";
     try {
-      const wrapped = await withTimeout(
-        client.models.generateContent(request),
-        options.timeoutMs ?? 10 * 60_000,
-      );
-      if (wrapped.timedOut) {
-        return {
-          success: false,
-          sessionId: options.sessionId,
-          timedOut: true,
-          error: "Google GenAI SDK request timed out.",
-        };
+      if (typeof client.models.generateContentStream === "function") {
+        const stream = await client.models.generateContentStream(request);
+        if (isAsyncIterable(stream)) {
+          const streamed = await runStreamingRequest({
+            stream,
+            options,
+          });
+          streamedText = streamed.streamedText;
+          response = streamed.response;
+          if (streamed.timedOut) {
+            return {
+              success: false,
+              sessionId: options.sessionId,
+              timedOut: true,
+              error: "Google GenAI SDK request timed out.",
+            };
+          }
+        } else {
+          response = stream;
+        }
+      } else {
+        const wrapped = await withTimeout(
+          client.models.generateContent(request),
+          options.timeoutMs ?? 10 * 60_000,
+        );
+        if (wrapped.timedOut) {
+          return {
+            success: false,
+            sessionId: options.sessionId,
+            timedOut: true,
+            error: "Google GenAI SDK request timed out.",
+          };
+        }
+        response = wrapped.value;
       }
-      response = wrapped.value;
     } catch (error) {
       const message = getErrorMessage(error);
       return {
@@ -297,7 +432,7 @@ class GoogleGenAiRunner implements OttoRunner {
       };
     }
 
-    const outputText = extractTextFromResponse(response);
+    const outputText = streamedText || extractTextFromResponse(response);
     const sessionId = extractSessionId(response) ?? options.sessionId;
 
     if (!outputText) {
@@ -308,12 +443,14 @@ class GoogleGenAiRunner implements OttoRunner {
       };
     }
 
-    await emitAssistantText({
-      onEvent: options.onEvent,
-      messageId: `${this.id}-message-1`,
-      text: outputText,
-      rawEvent: response,
-    });
+    if (!streamedText) {
+      await emitAssistantText({
+        onEvent: options.onEvent,
+        messageId: `${this.id}-message-1`,
+        text: outputText,
+        rawEvent: response,
+      });
+    }
 
     return {
       success: true,

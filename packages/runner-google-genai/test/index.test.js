@@ -6,6 +6,17 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const mod = await jiti(new URL("../src/index.ts", import.meta.url).href);
 
+function makeStream(chunks, finalResponse) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) {
+        yield chunk;
+      }
+    },
+    response: Promise.resolve(finalResponse),
+  };
+}
+
 test("google genai runner parses direct text response", async () => {
   let request;
   const runner = mod.createGoogleGenAiRunner({
@@ -199,4 +210,47 @@ test("google genai runner emits AG-UI assistant events", async () => {
     "TEXT_MESSAGE_END",
   ]);
   assert.equal(events[1].delta, "genai hello");
+});
+
+test("google genai runner prefers streaming API when available", async () => {
+  const events = [];
+  const runner = mod.createGoogleGenAiRunner({
+    clientFactory: async () => ({
+      models: {
+        generateContent: async () => {
+          throw new Error("should not hit non-streaming path");
+        },
+        generateContentStream: () =>
+          makeStream(
+            [
+              { text: "hello" },
+              { text: "hello world" },
+            ],
+            { responseId: "gen_stream", text: "hello world" },
+          ),
+      },
+    }),
+  });
+
+  const out = await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "Do task",
+    cwd: process.cwd(),
+    exec: { run: async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false }) },
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.equal(out.success, true);
+  assert.equal(out.outputText, "hello world");
+  assert.deepEqual(events.map((event) => event.type), [
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[1].delta, "hello");
+  assert.equal(events[2].delta, " world");
 });

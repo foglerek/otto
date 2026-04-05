@@ -126,8 +126,9 @@ Recommended rollout:
 
 Current blocker:
 
-- this now looks like the next clean SDK streaming candidate after `claude-sdk` and `codex-sdk`
-- we still need to adopt `generateContentStream(...)` in the runner implementation rather than just the current final-response path
+- this was the next clean SDK streaming candidate after `claude-sdk` and `codex-sdk`
+- `generateContentStream(...)` is now adopted for incremental assistant text when available
+- richer tool/reasoning semantics still need confirmation from the streamed chunk structure
 
 ### `@otto/runner-opencode-sdk`
 
@@ -156,6 +157,7 @@ Recommended rollout:
 Current blocker:
 
 - this likely needs a different implementation shape than the other SDK runners because the natural primitive is session/event subscription rather than a single request returning a stream
+- this is now the main remaining SDK streaming blocker after `claude-sdk`, `codex-sdk`, and `google-genai`
 
 ## Not Worth Doing Yet
 
