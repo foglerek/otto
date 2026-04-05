@@ -52,6 +52,14 @@ type RunnerAttempt = {
   contextOverflow: boolean;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
 function mergeConfig(role: OttoRole, options: OpencodeCliRunnerOptions): OpencodeModelConfig {
   return {
     ...DEFAULT_BY_ROLE[role],
@@ -167,6 +175,60 @@ async function emitAssistantText(args: {
   });
 }
 
+async function emitToolCallStart(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  toolCallId: string;
+  toolCallName: string;
+  input?: unknown;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TOOL_CALL_START",
+    toolCallId: args.toolCallId,
+    toolCallName: args.toolCallName,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TOOL_CALL_ARGS",
+    toolCallId: args.toolCallId,
+    delta: JSON.stringify(args.input ?? {}),
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitToolCallEnd(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  toolCallId: string;
+  resultText: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TOOL_CALL_END",
+    toolCallId: args.toolCallId,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TOOL_CALL_RESULT",
+    messageId: `tool-result-${args.toolCallId}`,
+    toolCallId: args.toolCallId,
+    content: args.resultText,
+    role: "tool",
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
 class OpencodeCliRunner implements OttoRunner {
   readonly kind = "opencode-cli";
   readonly id = "opencode-cli";
@@ -187,6 +249,30 @@ class OpencodeCliRunner implements OttoRunner {
       env: args.env,
       onStdoutLine: async (line) => {
         const analysis = analyzeLine(line);
+        const raw = analysis?.raw;
+        if (raw && isRecord(raw) && raw.type === "tool_use" && isRecord(raw.part)) {
+          const toolCallId = asString(raw.part.callID);
+          const toolCallName = asString(raw.part.tool);
+          const state = isRecord(raw.part.state) ? raw.part.state : null;
+          if (toolCallId && toolCallName) {
+            await emitToolCallStart({
+              onEvent: args.runOptions.onEvent,
+              toolCallId,
+              toolCallName,
+              input: state && isRecord(state.input) ? state.input : raw.part.input,
+              rawEvent: raw,
+            });
+            if (state && asString(state.status) === "completed") {
+              await emitToolCallEnd({
+                onEvent: args.runOptions.onEvent,
+                toolCallId,
+                resultText: asString(state.output) ?? "",
+                rawEvent: raw,
+              });
+            }
+          }
+          return;
+        }
         if (!analysis?.text) {
           return;
         }

@@ -24,8 +24,8 @@ Legend:
 | --- | --- | --- | --- | --- | --- |
 | `claude-code` | native live | native live | pending | yes | Uses `assistant` tool_use + `user` tool_result records from `stream-json`; final `result` is deduped against live text. |
 | `codex-cli` | native live | native live | pending | yes | Uses `item.started/item.completed` `command_execution` records plus `agent_message` records from `codex exec --json`. |
-| `opencode-cli` | native live | pending | pending | yes | Text payloads emit assistant events; richer tool semantics not mapped yet. |
-| `gemini-cli` | native live | pending | pending | yes | Result/text records emit assistant events; raw JSON preserved. |
+| `opencode-cli` | native live | native live | pending | yes | `tool_use` records carry completed bash tool state and now map to AG-UI tool-call events. |
+| `gemini-cli` | native live | native live | pending | yes | `tool_use` / `tool_result` records now map to AG-UI tool-call events. |
 | `ollama` | final only | pending | pending | no | Emits final assistant text event from parsed output. |
 | `claude-sdk` | final only | pending | pending | no | Emits final assistant text event from SDK response. |
 | `codex-sdk` | final only | pending | pending | no | Emits final assistant text event from SDK response. |
@@ -71,6 +71,43 @@ Current mapping:
 ## Next Mapping Targets
 
 1. Validate `claude-code` and `codex-cli` semantics during real dogfooding runs.
-2. Decide whether any native records should become `REASONING_*` events.
-3. Extend native tool/reasoning mapping for `opencode-cli` and `gemini-cli` if their streams support it cleanly.
+2. Validate `opencode-cli` and `gemini-cli` tool semantics on real runs now that they have live tool-call mappings.
+3. Decide whether any native records should become `REASONING_*` events.
 4. Decide whether SDK runners need richer semantics than final assistant text for v1.
+
+## Additional CLI Findings
+
+### `opencode-cli`
+
+Observed from direct invocation with `opencode run --format json`:
+
+- `step_start`
+- `tool_use` with:
+  - `part.callID`
+  - `part.tool`
+  - `part.state.status`
+  - `part.state.input`
+  - `part.state.output`
+- `text`
+- `step_finish`
+
+Current mapping:
+
+- `tool_use` -> `TOOL_CALL_START` + `TOOL_CALL_ARGS` + `TOOL_CALL_END` + `TOOL_CALL_RESULT` when tool state is already completed
+- `text` -> `TEXT_MESSAGE_*`
+
+### `gemini-cli`
+
+Observed from direct invocation with `gemini --output-format stream-json --yolo`:
+
+- `init`
+- `message` with assistant text deltas
+- `tool_use` with `tool_name`, `tool_id`, `parameters`
+- `tool_result` with `tool_id`, `status`, `output`
+- final `result`
+
+Current mapping:
+
+- assistant `message` -> `TEXT_MESSAGE_*`
+- `tool_use` -> `TOOL_CALL_START` + `TOOL_CALL_ARGS`
+- `tool_result` -> `TOOL_CALL_END` + `TOOL_CALL_RESULT`

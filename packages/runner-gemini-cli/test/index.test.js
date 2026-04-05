@@ -213,3 +213,54 @@ test("gemini runner emits AG-UI assistant events", async () => {
   ]);
   assert.equal(events[1].delta, "gemini hello");
 });
+
+test("gemini runner emits AG-UI tool call events", async () => {
+  const runner = mod.createGeminiCliRunner();
+  const calls = [];
+  const events = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout:
+        line({
+          type: "tool_use",
+          tool_name: "run_shell_command",
+          tool_id: "tool-1",
+          parameters: { command: "ls -A1 | wc -l" },
+        }) +
+        line({
+          type: "tool_result",
+          tool_id: "tool-1",
+          output: "26",
+        }) +
+        line({ type: "message", role: "assistant", content: "26", delta: true }) +
+        line({ type: "result", status: "success" }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  await runner.run({
+    role: "lead",
+    phaseName: "plan",
+    prompt: "count",
+    cwd: process.cwd(),
+    exec,
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[0].toolCallName, "run_shell_command");
+  assert.equal(events[3].content, "26");
+});

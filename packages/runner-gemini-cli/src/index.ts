@@ -280,6 +280,60 @@ async function emitAssistantText(args: {
   });
 }
 
+async function emitToolCallStart(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  toolCallId: string;
+  toolCallName: string;
+  input?: unknown;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TOOL_CALL_START",
+    toolCallId: args.toolCallId,
+    toolCallName: args.toolCallName,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TOOL_CALL_ARGS",
+    toolCallId: args.toolCallId,
+    delta: JSON.stringify(args.input ?? {}),
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitToolCallEnd(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  toolCallId: string;
+  resultText: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TOOL_CALL_END",
+    toolCallId: args.toolCallId,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TOOL_CALL_RESULT",
+    messageId: `tool-result-${args.toolCallId}`,
+    toolCallId: args.toolCallId,
+    content: args.resultText,
+    role: "tool",
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
 function buildArgs(args: {
   binary: string;
   run: OttoRunnerRunOptions;
@@ -326,6 +380,36 @@ class GeminiCliRunner implements OttoRunner {
         if (!trimmed) return;
         const obj = parseJsonLine(trimmed);
         if (!obj) return;
+
+        if (obj.type === "tool_use") {
+          const toolCallId = asString(obj.tool_id);
+          const toolCallName = asString(obj.tool_name);
+          if (toolCallId && toolCallName) {
+            await emitToolCallStart({
+              onEvent: options.onEvent,
+              toolCallId,
+              toolCallName,
+              input: obj.parameters,
+              rawEvent: obj,
+            });
+          }
+          return;
+        }
+
+        if (obj.type === "tool_result") {
+          const toolCallId = asString(obj.tool_id);
+          const resultText = asString(obj.output) ?? "";
+          if (toolCallId) {
+            await emitToolCallEnd({
+              onEvent: options.onEvent,
+              toolCallId,
+              resultText,
+              rawEvent: obj,
+            });
+          }
+          return;
+        }
+
         const textCandidate = extractTextCandidate(obj);
         if (!textCandidate || textCandidate === lastLiveMessage) {
           return;

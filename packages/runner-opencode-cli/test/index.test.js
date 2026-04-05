@@ -457,3 +457,57 @@ test("opencode runner emits AG-UI assistant events from text payloads", async ()
   ]);
   assert.equal(events[1].delta, "live hello");
 });
+
+test("opencode runner emits AG-UI tool call events", async () => {
+  const runner = mod.createOpencodeCliRunner();
+  const calls = [];
+  const events = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout:
+        line({
+          type: "tool_use",
+          sessionID: "ses_tool",
+          part: {
+            type: "tool",
+            callID: "call_1",
+            tool: "bash",
+            state: {
+              status: "completed",
+              input: { command: "ls -1A | wc -l" },
+              output: "26",
+            },
+          },
+        }) +
+        line({ type: "text", sessionID: "ses_tool", part: { type: "text", text: "26" } }) +
+        line({ type: "step_finish", sessionID: "ses_tool", part: { type: "step-finish" } }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  await runner.run({
+    role: "task",
+    phaseName: "execution",
+    prompt: "count",
+    cwd: process.cwd(),
+    exec,
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[0].toolCallName, "bash");
+  assert.equal(events[3].content, "26");
+});
