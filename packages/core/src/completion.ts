@@ -37,7 +37,18 @@ export async function finalizeCompletedRun(args: {
 
 export function shouldFinalizeCompletedRun(args: {
   stoppedAtPhase: string;
-  mergeBack: { status: string } | null;
+  mergeBack: { status: string; message?: string } | null;
 }): boolean {
-  return args.stoppedAtPhase === "cleanup" && args.mergeBack?.status === "merged";
+  if (args.stoppedAtPhase !== "cleanup" || !args.mergeBack) {
+    return false;
+  }
+
+  if (args.mergeBack.status === "merged") {
+    return true;
+  }
+
+  return (
+    args.mergeBack.status === "skipped" &&
+    /already merged/i.test(args.mergeBack.message ?? "")
+  );
 }

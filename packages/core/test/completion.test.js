@@ -35,6 +35,7 @@ function makeState(root) {
 
 test("shouldFinalizeCompletedRun only finalizes merged cleanup runs", () => {
   assert.equal(completion.shouldFinalizeCompletedRun({ stoppedAtPhase: "cleanup", mergeBack: { status: "merged" } }), true);
+  assert.equal(completion.shouldFinalizeCompletedRun({ stoppedAtPhase: "cleanup", mergeBack: { status: "skipped", message: "Skipped merge-back: workflow-x is already merged into main." } }), true);
   assert.equal(completion.shouldFinalizeCompletedRun({ stoppedAtPhase: "cleanup", mergeBack: { status: "skipped" } }), false);
   assert.equal(completion.shouldFinalizeCompletedRun({ stoppedAtPhase: "finalize", mergeBack: { status: "merged" } }), false);
 });
