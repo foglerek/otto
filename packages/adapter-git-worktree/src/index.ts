@@ -34,6 +34,28 @@ async function run(cmd: string, args: string[], cwd: string): Promise<string> {
   });
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function branchExists(repoPath: string, branchName: string): Promise<boolean> {
+  try {
+    await run(
+      "git",
+      ["-C", repoPath, "rev-parse", "--verify", "--quiet", branchName],
+      repoPath,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function listWorktreePids(worktreePath: string): Promise<number[]> {
   return await new Promise((resolve, reject) => {
     const child = spawn("lsof", ["-t", "+D", worktreePath], {
@@ -158,25 +180,27 @@ class GitWorktreeAdapter implements OttoWorktreeAdapter {
     branchName: string;
     deleteBranch: boolean;
   }): Promise<void> {
-    await run(
-      "git",
-      [
-        "-C",
+    if (await pathExists(args.worktreePath)) {
+      await run(
+        "git",
+        [
+          "-C",
+          args.mainRepoPath,
+          "worktree",
+          "remove",
+          "--force",
+          args.worktreePath,
+        ],
         args.mainRepoPath,
-        "worktree",
-        "remove",
-        "--force",
-        args.worktreePath,
-      ],
-      args.mainRepoPath,
-    );
+      );
+    }
     await run(
       "git",
       ["-C", args.mainRepoPath, "worktree", "prune"],
       args.mainRepoPath,
     );
 
-    if (args.deleteBranch) {
+    if (args.deleteBranch && (await branchExists(args.mainRepoPath, args.branchName))) {
       await run(
         "git",
         ["-C", args.mainRepoPath, "branch", "-D", args.branchName],

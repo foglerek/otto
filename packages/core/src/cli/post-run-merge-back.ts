@@ -13,6 +13,11 @@ import type {
   OttoQualityCheckResult,
 } from "@otto/ports";
 import { OK_SENTINEL_SPEC, matchOutputSentinel } from "../workflow/sentinels.js";
+import {
+  ensureMergeSourceBranchExists,
+  ensureBaseBranchCheckedOut,
+  prepareMergeBackMerge,
+} from "./post-run-merge-back-support.js";
 
 type MergeBackStatus =
   | "merged"
@@ -100,6 +105,7 @@ async function runGit(
     label: `git ${args.join(" ")}`,
   });
 }
+
 
 async function abortPendingMerge(exec: OttoExec, cwd: string): Promise<void> {
   await runGit(exec, cwd, ["merge", "--abort"], 30_000);
@@ -268,104 +274,27 @@ export async function maybeRunPostCleanupMergeBack(args: {
   const baseBranch = state.worktree.baseBranch;
   const worktreeBranch = state.worktree.branchName;
 
-  const branchExists = await runGit(exec, repoPath, [
-    "rev-parse",
-    "--verify",
-    "--quiet",
+  const branchCheck = await ensureMergeSourceBranchExists({
+    exec,
+    repoPath,
     worktreeBranch,
-  ]);
-  if (branchExists.exitCode !== 0 || branchExists.timedOut) {
-    return {
-      status: "failed",
-      message: `Merge-back failed: source branch ${worktreeBranch} was not found in ${repoPath}.`,
-    };
+  });
+  if (branchCheck) {
+    return branchCheck;
   }
 
-  const statusBefore = await runGit(exec, repoPath, ["status", "--porcelain=v1"], 30_000);
-  if (statusBefore.exitCode !== 0 || statusBefore.timedOut) {
-    return {
-      status: "failed",
-      message: "Merge-back failed: unable to inspect main repo git status.",
-    };
-  }
-  if (statusBefore.stdout.trim().length > 0) {
-    return {
-      status: "aborted",
-      message:
-        "Merge-back aborted: main repo has uncommitted changes. Commit/stash first and rerun resume.",
-    };
-  }
-
-  const currentBranch = await runGit(exec, repoPath, [
-    "rev-parse",
-    "--abbrev-ref",
-    "HEAD",
-  ], 30_000);
-  if (currentBranch.exitCode !== 0 || currentBranch.timedOut) {
-    return {
-      status: "failed",
-      message: "Merge-back failed: unable to determine current main repo branch.",
-    };
-  }
-
-  const currentBranchName = currentBranch.stdout.trim();
-  if (currentBranchName !== baseBranch) {
-    const switchOk = await prompt.confirm(
-      `Main repo is on ${currentBranchName}; switch to ${baseBranch} for merge-back?`,
-      { defaultValue: true },
-    );
-    if (!switchOk) {
-      return {
-        status: "skipped",
-        message: `Skipped merge-back because base branch ${baseBranch} is not checked out.`,
-      };
-    }
-
-    const checkout = await runGit(exec, repoPath, ["checkout", baseBranch], 60_000);
-    if (checkout.exitCode !== 0 || checkout.timedOut) {
-      return {
-        status: "failed",
-        message: `Merge-back failed: could not switch to ${baseBranch} (${checkout.stderr || checkout.stdout || "checkout failed"}).`,
-      };
-    }
-  }
-
-  const alreadyMerged = await runGit(exec, repoPath, [
-    "merge-base",
-    "--is-ancestor",
-    worktreeBranch,
+  const mergePreparation = await prepareMergeBackMerge({
+    prompt,
+    config,
+    exec,
+    repoPath,
     baseBranch,
-  ], 30_000);
-  if (alreadyMerged.exitCode === 0 && !alreadyMerged.timedOut) {
-    return {
-      status: "skipped",
-      message: `Skipped merge-back: ${worktreeBranch} is already merged into ${baseBranch}.`,
-    };
-  }
-
-  const merge = await runGit(exec, repoPath, [
-    "merge",
-    "--no-ff",
-    "--no-commit",
     worktreeBranch,
-  ], 5 * 60_000);
-  if (merge.exitCode !== 0 || merge.timedOut) {
-    const resolution = await attemptConflictResolutionWithRunner({
-      prompt,
-      config,
-      exec,
-      repoPath,
-      baseBranch,
-      worktreeBranch,
-    });
-    if (!resolution.ok) {
-      await abortPendingMerge(exec, repoPath);
-      const mergeMessage = (merge.stderr || merge.stdout || "merge command failed").trim();
-      return {
-        status: "failed",
-        message: `${resolution.message} (git merge output: ${mergeMessage})`,
-      };
-    }
+    abortPendingMerge,
+    attemptConflictResolution: attemptConflictResolutionWithRunner,
+  });
+  if (mergePreparation.earlyResult) {
+    return mergePreparation.earlyResult;
   }
 
   const removeTempEnvFile = await ensureTemporaryMergeBackEnvFile({
