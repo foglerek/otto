@@ -14,6 +14,7 @@ import { isRunLockStale, readRunLockFile } from "../locks/run-lock.js";
 import { listManagedTicketIds } from "../tickets/list.js";
 import { runTicketCreate, runTicketIngest } from "../cli/commands/tickets.js";
 import { getProjectLeadRunner } from "../cli/runner-gating.js";
+import { writeRunUiState } from "./run-ui-state.js";
 
 import { resolveWebRepoContext } from "./web.js";
 
@@ -36,6 +37,12 @@ export interface OttoIngestTicketResult {
 export interface OttoDeleteRunResult {
   runId: string;
   preservedTicketPath: string;
+}
+
+export interface OttoMarkRunDoneResult {
+  runId: string;
+  markedDone: boolean;
+  markedDoneAt: string | null;
 }
 
 function createNeverPromptAdapter(): OttoPromptAdapter {
@@ -197,5 +204,40 @@ export async function deleteManagedRun(args: {
   return {
     runId: state.runId,
     preservedTicketPath: state.ticket.filePath,
+  };
+}
+
+export async function setManagedRunDone(args: {
+  cwd: string;
+  runId: string;
+  markedDone: boolean;
+}): Promise<OttoMarkRunDoneResult> {
+  const runId = args.runId.trim();
+  if (!runId) {
+    throw new Error("Run id is required.");
+  }
+
+  const context = await resolveWebRepoContext(args.cwd);
+  const { artifactPaths } = await ensureRepoSetup({
+    mainRepoPath: context.mainRepoPath,
+    config: context.config,
+  });
+
+  const runs = await listRuns({ artifactRootDir: artifactPaths.rootDir });
+  const existing = runs.find((run) => run.state.runId === runId);
+  if (!existing) {
+    throw new Error(`Run not found: ${runId}`);
+  }
+
+  const markedDoneAt = args.markedDone ? new Date().toISOString() : null;
+  await writeRunUiState(existing.state.runDir, {
+    markedDone: args.markedDone,
+    markedDoneAt: markedDoneAt ?? undefined,
+  });
+
+  return {
+    runId,
+    markedDone: args.markedDone,
+    markedDoneAt,
   };
 }

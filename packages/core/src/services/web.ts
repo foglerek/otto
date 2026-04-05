@@ -12,6 +12,7 @@ import { getStateFilePathForRunId } from "../runs/paths.js";
 import { loadOttoState, type OttoStateV1 } from "../state.js";
 import { listManagedTicketIds } from "../tickets/list.js";
 import { getDecisionCardsPath, getFinalReportPath, getPlanFilePath } from "../workflow/paths.js";
+import { readRunUiState } from "./run-ui-state.js";
 
 export interface OttoWebRepoContext {
   cwd: string;
@@ -29,6 +30,8 @@ export interface OttoWebRunSummary {
   baseBranch: string;
   phase: string | null;
   processStatus: "active" | "inactive" | "stale";
+  isMarkedDone: boolean;
+  markedDoneAt: string | null;
   lockPid: number | null;
   needsUserInput: boolean;
   taskQueueLength: number;
@@ -110,6 +113,8 @@ function summarizeRun(state: OttoStateV1, processStatus: OttoWebRunSummary["proc
     baseBranch: state.worktree.baseBranch,
     phase: state.workflow?.phase ?? null,
     processStatus,
+    isMarkedDone: false,
+    markedDoneAt: null,
     lockPid,
     needsUserInput: state.workflow?.needsUserInput === true,
     taskQueueLength: queue.length,
@@ -128,14 +133,17 @@ async function pathExists(filePath: string): Promise<boolean> {
 }
 
 async function withArtifactFlags(summary: OttoWebRunSummary, state: OttoStateV1): Promise<OttoWebRunSummary> {
-  const [planAvailable, finalReportAvailable] = await Promise.all([
+  const [planAvailable, finalReportAvailable, uiState] = await Promise.all([
     pathExists(getPlanFilePath(state)),
     pathExists(getFinalReportPath(state)),
+    readRunUiState(state.runDir),
   ]);
   return {
     ...summary,
     planAvailable,
     finalReportAvailable,
+    isMarkedDone: uiState.markedDone === true,
+    markedDoneAt: typeof uiState.markedDoneAt === "string" ? uiState.markedDoneAt : null,
   };
 }
 

@@ -5,7 +5,7 @@ import process from "node:process";
 import { loadUiWebAssets, renderUiWebDocument } from "@otto/ui-web";
 
 import { ensureRepoSetup } from "../repo-setup.js";
-import { createManagedTicket, deleteManagedRun, ingestManagedTicket, listManagedTickets } from "../services/actions.js";
+import { createManagedTicket, deleteManagedRun, ingestManagedTicket, listManagedTickets, setManagedRunDone } from "../services/actions.js";
 import { mergeBackManagedRun, resumeManagedRun, startManagedRun } from "../services/run-actions.js";
 import { getStateFilePathForRunId } from "../runs/paths.js";
 import { loadOttoState } from "../state.js";
@@ -228,6 +228,18 @@ async function handleRunMutationRoutes(args: {
         }),
     });
     writeJson(args.res, 200, job);
+    return true;
+  }
+
+  const doneMatch = args.pathname.match(/^\/api\/runs\/([^/]+)\/mark-done$/);
+  if (doneMatch && args.method === "POST") {
+    const runId = decodeURIComponent(doneMatch[1]);
+    const body = (await readJsonBody(args.req)) as { markedDone?: unknown };
+    writeJson(args.res, 200, await setManagedRunDone({
+      cwd: args.cwd,
+      runId,
+      markedDone: body.markedDone !== false,
+    }));
     return true;
   }
 

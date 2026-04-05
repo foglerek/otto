@@ -226,6 +226,7 @@ Current progress:
 - runners now also emit standardized assistant message AG-UI events directly during execution where line-streaming makes that possible (`claude-code`, `codex-cli`, `opencode-cli`, `gemini-cli`) and emit final assistant message AG-UI events across the major non-streaming runners as well (`ollama`, `claude-sdk`, `codex-sdk`, `google-genai`, `opencode-sdk`)
 - the current web UI is now an actual React/TSX client rather than an inline string-concatenated browser script
 - the current React UI subscribes to the selected run's AG-UI stream and renders readable message/tool/reasoning/control-plane cards alongside artifact/detail views
+- the current UX now supports manual run completion (`mark done`), collapsible artifact panels, and collapsible sidebar work cards to make dogfooding easier on long-lived repos
 
 This gives the browser a real-time feel without changing Otto's storage model.
 

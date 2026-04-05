@@ -6,6 +6,8 @@ export interface DashboardRunSummary {
   baseBranch: string;
   phase: string | null;
   processStatus: "active" | "inactive" | "stale";
+  isMarkedDone: boolean;
+  markedDoneAt: string | null;
   lockPid: number | null;
   needsUserInput: boolean;
   taskQueueLength: number;

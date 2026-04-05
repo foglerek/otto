@@ -433,6 +433,31 @@ textarea {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.collapsible-card {
+  overflow: hidden;
+}
+
+.collapsible-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-body {
+  margin-top: 14px;
+}
+
+.collapsible-badge {
+  opacity: 0.7;
+}
+
 .ag-ui-card-message {
   border-color: rgba(88, 166, 255, 0.18);
 }

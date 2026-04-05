@@ -110,6 +110,16 @@ function App(): React.JSX.Element {
     }
   }
 
+  async function toggleDone(runId: string, markedDone: boolean) {
+    try {
+      await postJson(`/api/runs/${encodeURIComponent(runId)}/mark-done`, { markedDone });
+      app.setState((current) => ({ ...current, actionMessage: markedDone ? `Marked ${runId} done.` : `Reopened ${runId}.`, actionError: "" }));
+      await refresh();
+    } catch (error) {
+      app.setActionMessage("", error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function respondPrompt(id: string, value: boolean | string) {
     try {
       await postJson(`/api/prompts/${encodeURIComponent(id)}/respond`, { value });
@@ -144,6 +154,7 @@ function App(): React.JSX.Element {
       onResumeRun={(runId) => void resumeRun(runId)}
       onMergeBackRun={(runId) => void mergeBackRun(runId)}
       onDeleteRun={(runId) => void deleteRun(runId)}
+      onToggleDone={(runId, markedDone) => void toggleDone(runId, markedDone)}
     />
   );
 }
