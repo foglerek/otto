@@ -1,6 +1,7 @@
 import React from "react";
 
 import { summarizeAgUiEvent } from "./ag-ui-summary.js";
+import { buildAgUiTimeline, splitAgUiEvents } from "./ag-ui-timeline.js";
 import { CollapsibleCard } from "./disclosure.js";
 import { ProjectOverview, type OverviewPanel } from "./project-shell.js";
 import { RunDetailStats, RunProgressStrip } from "./run-detail-chrome.js";
@@ -149,42 +150,34 @@ export function PromptInbox(props: {
 }
 
 export function AgUiFeed(props: { runId: string; events: AgUiEvent[] }): React.JSX.Element {
-  const hiddenCustomNames = new Set(["otto.exec_start", "otto.exec_result", "otto.run_finished"]);
-  const timelineEvents = props.events.filter((event) => {
-    if (event.type === "RAW") return false;
-    if (event.type === "STEP_STARTED" || event.type === "STEP_FINISHED") return false;
-    if (event.type === "CUSTOM" && hiddenCustomNames.has(event.name || "")) return false;
-    return true;
-  });
-  const debugEvents = props.events.filter((event) => {
-    if (event.type === "RAW") return true;
-    if (event.type === "STEP_STARTED" || event.type === "STEP_FINISHED") return true;
-    if (event.type === "CUSTOM" && hiddenCustomNames.has(event.name || "")) return true;
-    return false;
-  });
+  const split = splitAgUiEvents(props.events);
+  const timelineItems = buildAgUiTimeline(props.runId, split.primary);
+  const debugEvents = split.debug;
 
   return (
     <article className="timeline-card">
       <p className="eyebrow">AG-UI</p>
       <h3>Run event feed</h3>
-      {timelineEvents.length > 0 ? (
-        <div className="prompt-list">
-          {[...timelineEvents].reverse().map((event, index) => {
-            const kind = classifyAgUiEvent(event);
-            const summary = summarizeAgUiEvent(props.runId, event);
+      {timelineItems.length > 0 ? (
+        <div className="timeline-story">
+          {[...timelineItems].reverse().map((item, index) => {
+            const kind = item.kind === "message" ? "message" : item.kind === "tool" ? "tool" : item.kind === "reasoning" ? "reasoning" : item.kind === "control" ? "control" : "neutral";
             return (
-              <div className={`prompt-card ag-ui-card ag-ui-card-${kind}`} key={`${event.timestamp || index}-${event.type}-${index}`}>
-                <div className="detail-topline">
-                  <div>
-                    <p className="eyebrow">{event.type || "EVENT"}</p>
-                    <p className="subtle">{summary.title}</p>
+              <div className={`timeline-entry ag-ui-card ag-ui-card-${kind}`} key={`${item.timestamp || index}-${item.title}-${index}`}>
+                <div className="timeline-entry-marker" />
+                <div className="timeline-entry-body">
+                  <div className="detail-topline">
+                    <div>
+                      <p className="eyebrow">{item.kind}</p>
+                      <p className="subtle">{item.title}</p>
+                    </div>
+                    <div className="badge-row">
+                      {item.meta ? <span className="badge mono">{item.meta}</span> : null}
+                      <span className="badge mono">{item.timestamp ? formatDate(item.timestamp) : "-"}</span>
+                    </div>
                   </div>
-                  <div className="badge-row">
-                    {summary.meta ? <span className="badge mono">{summary.meta}</span> : null}
-                    <span className="badge mono">{event.timestamp ? formatDate(event.timestamp) : "-"}</span>
-                  </div>
+                  {item.body ? <div className="timeline-entry-text">{item.body}</div> : <p className="footer-note">No body payload.</p>}
                 </div>
-                {summary.body ? <pre className="prompt-message">{summary.body}</pre> : <p className="footer-note">No body payload.</p>}
               </div>
             );
           })}

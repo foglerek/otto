@@ -230,6 +230,7 @@ Current progress:
 - the top-level React shell now has an initial project-manager mode with compact run cards on the left, fast run switching, and a selected-run conversation/inbox pane in the main area
 - interim create / ingest / start controls remain available directly from that overview shell while the project-manager agent itself is still pending
 - run detail now also has a simplified progress strip so operators can see completed/current/remaining phases at a glance when they drill down
+- the AG-UI feed is now evolving toward a grouped narrative timeline: assistant messages and tool activity are merged into story-like items, while raw/debug noise stays behind a disclosure
 
 This gives the browser a real-time feel without changing Otto's storage model.
 
