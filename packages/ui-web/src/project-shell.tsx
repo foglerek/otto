@@ -72,7 +72,16 @@ function OverviewComposer(props: {
 }): React.JSX.Element {
   const prompts = (props.state.controlPlane?.prompts || []).filter((prompt) => prompt.runId === props.state.selectedRunId);
   if (prompts.length > 0) {
-    return <PromptInbox prompts={prompts} promptDrafts={props.state.promptDrafts} onDraftChange={props.onPromptDraftChange} onRespond={props.onRespondPrompt} />;
+    return (
+      <div className="project-chat-shell">
+        <div className="project-chat-body">
+          <p className="eyebrow">Current ask</p>
+          <h2 className="project-chat-title">{props.selectedDetail?.summary.ticketSlug || props.selectedDetail?.summary.runId || "Selected run"}</h2>
+          <p className="project-chat-note">The selected run is waiting on input. Respond here to unblock it.</p>
+          <PromptInbox prompts={prompts} promptDrafts={props.state.promptDrafts} onDraftChange={props.onPromptDraftChange} onRespond={props.onRespondPrompt} />
+        </div>
+      </div>
+    );
   }
 
   if (!props.selectedDetail) {

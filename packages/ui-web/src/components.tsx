@@ -464,7 +464,7 @@ export function AppLayout(props: {
             <button className={`button ${props.state.viewMode === "details" ? "button-primary" : "button-secondary"}`} onClick={() => props.onSetViewMode("details")}>Details</button>
           </div>
         </div>
-        <PromptInbox prompts={props.state.controlPlane?.prompts || []} promptDrafts={props.state.promptDrafts} onDraftChange={props.onPromptDraftChange} onRespond={props.onRespondPrompt} />
+        {props.state.viewMode === "details" ? <PromptInbox prompts={props.state.controlPlane?.prompts || []} promptDrafts={props.state.promptDrafts} onDraftChange={props.onPromptDraftChange} onRespond={props.onRespondPrompt} /> : null}
         {props.state.actionError ? <div className="action-banner error">{props.state.actionError}</div> : null}
         {props.state.actionMessage ? <div className="action-banner success">{props.state.actionMessage}</div> : null}
         {props.state.viewMode === "overview" ? (
