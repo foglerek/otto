@@ -13,11 +13,13 @@ const initialState: AppState = {
   ticketDraft: "",
   ingestDraft: "",
   ingestSourceName: "browser-ingest.md",
+  projectStateDraft: "",
   promptDrafts: {},
   actionMessage: "",
   actionError: "",
   isCreatingTicket: false,
   isIngestingTicket: false,
+  isSavingProjectState: false,
   isDeletingRun: false,
   liveStreamStatus: "connecting",
 };
@@ -59,6 +61,7 @@ function useInitialData(setState: React.Dispatch<React.SetStateAction<AppState>>
           dashboard,
           controlPlane,
           selectedRunId: ensureSelectedRun(dashboard, current.selectedRunId),
+          projectStateDraft: current.projectStateDraft || dashboard.projectState.preview,
           promptDrafts: mergePromptDrafts(current.promptDrafts, controlPlane),
         }));
       })
@@ -95,7 +98,12 @@ function useGeneralStream(setState: React.Dispatch<React.SetStateAction<AppState
     source.addEventListener("open", () => setState((current) => ({ ...current, liveStreamStatus: "connected" })));
     source.addEventListener("dashboard", (event) => {
       const dashboard = JSON.parse((event as MessageEvent).data) as DashboardData;
-      setState((current) => ({ ...current, dashboard, selectedRunId: ensureSelectedRun(dashboard, current.selectedRunId) }));
+      setState((current) => ({
+        ...current,
+        dashboard,
+        selectedRunId: ensureSelectedRun(dashboard, current.selectedRunId),
+        projectStateDraft: current.projectStateDraft || dashboard.projectState.preview,
+      }));
     });
     source.addEventListener("control-plane", (event) => {
       const controlPlane = JSON.parse((event as MessageEvent).data) as ControlPlaneData;
@@ -139,6 +147,7 @@ export function useAppState(): {
   setTicketDraft: (value: string) => void;
   setIngestDraft: (value: string) => void;
   setIngestSourceName: (value: string) => void;
+  setProjectStateDraft: (value: string) => void;
   setPromptDraft: (id: string, value: string) => void;
   setActionMessage: (message: string, error?: string) => void;
   setState: React.Dispatch<React.SetStateAction<AppState>>;
@@ -158,8 +167,9 @@ export function useAppState(): {
     setSelectedRunId: (runId) => setState((current) => ({ ...current, selectedRunId: runId })),
     setViewMode: (viewMode: "overview" | "details") => setState((current) => ({ ...current, viewMode })),
     setTicketDraft: (value) => setState((current) => ({ ...current, ticketDraft: value })),
-    setIngestDraft: (value) => setState((current) => ({ ...current, ingestDraft: value })),
-    setIngestSourceName: (value) => setState((current) => ({ ...current, ingestSourceName: value })),
+  setIngestDraft: (value) => setState((current) => ({ ...current, ingestDraft: value })),
+  setIngestSourceName: (value) => setState((current) => ({ ...current, ingestSourceName: value })),
+    setProjectStateDraft: (value: string) => setState((current) => ({ ...current, projectStateDraft: value })),
     setPromptDraft: (id, value) => setState((current) => ({ ...current, promptDrafts: { ...current.promptDrafts, [id]: value } })),
     setActionMessage: (message, error = "") => setState((current) => ({ ...current, actionMessage: message, actionError: error })),
     setState,

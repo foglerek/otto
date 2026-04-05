@@ -5,7 +5,7 @@ import process from "node:process";
 import { loadUiWebAssets, renderUiWebDocument } from "@otto/ui-web";
 
 import { ensureRepoSetup } from "../repo-setup.js";
-import { createManagedTicket, deleteManagedRun, ingestManagedTicket, listManagedTickets, setManagedRunDone } from "../services/actions.js";
+import { createManagedTicket, deleteManagedRun, getManagedProjectState, ingestManagedTicket, listManagedTickets, setManagedRunDone, updateManagedProjectState } from "../services/actions.js";
 import { mergeBackManagedRun, resumeManagedRun, startManagedRun } from "../services/run-actions.js";
 import { getStateFilePathForRunId } from "../runs/paths.js";
 import { loadOttoState } from "../state.js";
@@ -126,6 +126,18 @@ async function handleSimpleApiRoutes(args: {
     const body = (await readJsonBody(args.req)) as { ticketText?: unknown };
     const ticketText = typeof body.ticketText === "string" ? body.ticketText : "";
     writeJson(args.res, 200, await createManagedTicket({ cwd: args.cwd, ticketText }));
+    return true;
+  }
+
+  if (args.pathname === "/api/project-state" && args.method === "GET") {
+    writeJson(args.res, 200, await getManagedProjectState(args.cwd));
+    return true;
+  }
+
+  if (args.pathname === "/api/project-state" && args.method === "POST") {
+    const body = (await readJsonBody(args.req)) as { content?: unknown };
+    const content = typeof body.content === "string" ? body.content : "";
+    writeJson(args.res, 200, await updateManagedProjectState({ cwd: args.cwd, content }));
     return true;
   }
 

@@ -423,6 +423,8 @@ export function AppLayout(props: {
   onSetViewMode: (viewMode: "overview" | "details") => void;
   overviewPanel: OverviewPanel;
   onSetOverviewPanel: (panel: OverviewPanel) => void;
+  onProjectStateDraftChange: (value: string) => void;
+  onSaveProjectState: () => void;
   onSelectRun: (runId: string) => void;
   onRefresh: () => void;
   onCreateTicket: () => void;
@@ -471,6 +473,8 @@ export function AppLayout(props: {
             selectedDetail={props.selectedDetail}
             overviewPanel={props.overviewPanel}
             onSetOverviewPanel={props.onSetOverviewPanel}
+            onProjectStateDraftChange={props.onProjectStateDraftChange}
+            onSaveProjectState={props.onSaveProjectState}
             onCreateTicket={props.onCreateTicket}
             onIngestTicket={props.onIngestTicket}
             onTicketDraftChange={props.onTicketDraftChange}

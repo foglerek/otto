@@ -107,6 +107,8 @@ export function ProjectOverview(props: {
   selectedDetail: RunDetailData | null;
   overviewPanel: OverviewPanel;
   onSetOverviewPanel: (panel: OverviewPanel) => void;
+  onProjectStateDraftChange: (value: string) => void;
+  onSaveProjectState: () => void;
   onCreateTicket: () => void;
   onIngestTicket: () => void;
   onTicketDraftChange: (value: string) => void;
@@ -120,6 +122,16 @@ export function ProjectOverview(props: {
 }): React.JSX.Element {
   return (
     <div className="stack">
+      <div className="panel stack">
+        <div className="toolbar">
+          <div>
+            <p className="eyebrow">Project state</p>
+            <p className="subtle mono">{props.state.dashboard?.projectState.path || ""}</p>
+          </div>
+          <button className="button button-primary" disabled={props.state.isSavingProjectState} onClick={props.onSaveProjectState}>{props.state.isSavingProjectState ? "Saving..." : "Save state"}</button>
+        </div>
+        <textarea className="text-input" rows={6} value={props.state.projectStateDraft} onChange={(event) => props.onProjectStateDraftChange(event.target.value)} />
+      </div>
       <div className="project-toolbar">
         <div className="prompt-actions">
           <button className={`button ${props.overviewPanel === "create" ? "button-primary" : "button-secondary"}`} onClick={() => props.onSetOverviewPanel(props.overviewPanel === "create" ? null : "create")}>Create ticket</button>

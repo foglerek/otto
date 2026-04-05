@@ -231,6 +231,7 @@ Current progress:
 - interim create / ingest / start controls remain available directly from that overview shell while the project-manager agent itself is still pending
 - run detail now also has a simplified progress strip so operators can see completed/current/remaining phases at a glance when they drill down
 - the AG-UI feed is now evolving toward a grouped narrative timeline: assistant messages and tool activity are merged into story-like items, while raw/debug noise stays behind a disclosure
+- the overview shell now also exposes a simple markdown-backed `.otto/project-state.md` editor so the future project-level session has an Otto-native place to persist project context by default
 
 This gives the browser a real-time feel without changing Otto's storage model.
 

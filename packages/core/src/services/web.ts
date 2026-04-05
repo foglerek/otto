@@ -13,6 +13,7 @@ import { loadOttoState, type OttoStateV1 } from "../state.js";
 import { listManagedTicketIds } from "../tickets/list.js";
 import { getDecisionCardsPath, getFinalReportPath, getPlanFilePath } from "../workflow/paths.js";
 import { readRunUiState } from "./run-ui-state.js";
+import { readProjectState } from "./project-state.js";
 
 export interface OttoWebRepoContext {
   cwd: string;
@@ -46,6 +47,10 @@ export interface OttoWebDashboardData {
   defaultRunnerId: string | null;
   subagentsEnabled: boolean;
   onboardingStatus: string | null;
+  projectState: {
+    path: string;
+    preview: string;
+  };
   ticketsCount: number;
   tickets: Array<{
     ticketId: string;
@@ -225,10 +230,11 @@ async function listRunFiles(runDir: string): Promise<string[]> {
 
 export async function loadWebDashboardData(cwd: string): Promise<OttoWebDashboardData> {
   const context = await resolveWebRepoContext(cwd);
-  const [tickets, runs, onboarding] = await Promise.all([
+  const [tickets, runs, onboarding, projectState] = await Promise.all([
     listManagedTicketIds(context.mainRepoPath),
     listRuns({ artifactRootDir: context.artifactRootDir }),
     readOptionalJson(path.join(context.artifactRootDir, "states", "onboarding.json")),
+    readProjectState(context.artifactRootDir),
   ]);
   const runIds = new Set(runs.map((run) => run.state.runId));
 
@@ -255,6 +261,10 @@ export async function loadWebDashboardData(cwd: string): Promise<OttoWebDashboar
     defaultRunnerId: context.config.runners.default?.id ?? null,
     subagentsEnabled: context.config.subagents?.enabled === true,
     onboardingStatus: typeof onboarding?.status === "string" ? onboarding.status : null,
+    projectState: {
+      path: projectState.path,
+      preview: projectState.content.slice(0, 5000),
+    },
     ticketsCount: tickets.length,
     tickets: tickets.map((ticketId) => ({
       ticketId,

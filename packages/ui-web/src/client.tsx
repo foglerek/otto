@@ -135,6 +135,17 @@ function App(): React.JSX.Element {
     }
   }
 
+  async function saveProjectState() {
+    app.setState((current) => ({ ...current, isSavingProjectState: true, actionError: "", actionMessage: "" }));
+    try {
+      await postJson("/api/project-state", { content: app.state.projectStateDraft });
+      app.setState((current) => ({ ...current, isSavingProjectState: false, actionMessage: "Saved project state." }));
+      await refresh();
+    } catch (error) {
+      app.setState((current) => ({ ...current, isSavingProjectState: false, actionError: error instanceof Error ? error.message : String(error) }));
+    }
+  }
+
   if (app.fatalError) return <ErrorState message={app.fatalError} />;
   if (!app.state.dashboard || !app.state.controlPlane) return <ShellLoading />;
 
@@ -152,6 +163,8 @@ function App(): React.JSX.Element {
       onTicketDraftChange={app.setTicketDraft}
       onIngestDraftChange={app.setIngestDraft}
       onIngestSourceNameChange={app.setIngestSourceName}
+      onProjectStateDraftChange={app.setProjectStateDraft}
+      onSaveProjectState={() => void saveProjectState()}
       onIngestFile={(file) => void file.text().then((text) => app.setState((current) => ({ ...current, ingestSourceName: file.name || "browser-ingest.md", ingestDraft: text })))}
       onStartRun={(ticketId) => void startRun(ticketId)}
       onRespondPrompt={(id, value) => void respondPrompt(id, value)}

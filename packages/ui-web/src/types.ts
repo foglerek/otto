@@ -27,6 +27,10 @@ export interface DashboardData {
   defaultRunnerId: string | null;
   subagentsEnabled: boolean;
   onboardingStatus: string | null;
+  projectState: {
+    path: string;
+    preview: string;
+  };
   ticketsCount: number;
   tickets: DashboardTicketSummary[];
   runCounts: {
@@ -128,11 +132,13 @@ export interface AppState {
   ticketDraft: string;
   ingestDraft: string;
   ingestSourceName: string;
+  projectStateDraft: string;
   promptDrafts: Record<string, string>;
   actionMessage: string;
   actionError: string;
   isCreatingTicket: boolean;
   isIngestingTicket: boolean;
+  isSavingProjectState: boolean;
   isDeletingRun: boolean;
   liveStreamStatus: "connecting" | "connected" | "error";
 }

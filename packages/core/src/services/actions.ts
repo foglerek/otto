@@ -15,6 +15,7 @@ import { listManagedTicketIds } from "../tickets/list.js";
 import { runTicketCreate, runTicketIngest } from "../cli/commands/tickets.js";
 import { getProjectLeadRunner } from "../cli/runner-gating.js";
 import { writeRunUiState } from "./run-ui-state.js";
+import { readProjectState, writeProjectState } from "./project-state.js";
 
 import { resolveWebRepoContext } from "./web.js";
 
@@ -43,6 +44,16 @@ export interface OttoMarkRunDoneResult {
   runId: string;
   markedDone: boolean;
   markedDoneAt: string | null;
+}
+
+export async function getManagedProjectState(cwd: string): Promise<{ path: string; content: string }> {
+  const context = await resolveWebRepoContext(cwd);
+  return await readProjectState(context.artifactRootDir);
+}
+
+export async function updateManagedProjectState(args: { cwd: string; content: string }): Promise<{ path: string }> {
+  const context = await resolveWebRepoContext(args.cwd);
+  return await writeProjectState(context.artifactRootDir, args.content);
 }
 
 function createNeverPromptAdapter(): OttoPromptAdapter {
