@@ -78,6 +78,10 @@ function summarizeFirstFailure(
   return detail ? `${failed.name}: ${detail}` : failed.name;
 }
 
+function isNoOpCommitMessage(message: string): boolean {
+  return /nothing to commit, working tree clean/i.test(message);
+}
+
 function makeExecWithDefaults(state: OttoStateV1): OttoExec {
   const rawExec = createNodeExec();
   const defaultEnv = buildRunDefaultEnv(state);
@@ -353,8 +357,17 @@ export async function maybeRunPostCleanupMergeBack(args: {
     `Merge ${worktreeBranch} after Otto run ${state.runId}`,
   ], 60_000);
   if (commit.exitCode !== 0 || commit.timedOut) {
-    await abortPendingMerge(exec, repoPath);
     const commitMessage = (commit.stderr || commit.stdout || "git commit failed").trim();
+    if (isNoOpCommitMessage(commitMessage)) {
+      const mergeHead = await runGit(exec, repoPath, ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], 30_000);
+      if (mergeHead.exitCode !== 0 || mergeHead.timedOut) {
+        return {
+          status: "skipped",
+          message: `Skipped merge-back: ${worktreeBranch} is already merged into ${baseBranch}.`,
+        };
+      }
+    }
+    await abortPendingMerge(exec, repoPath);
     return {
       status: "failed",
       message: `Merge-back failed while committing merge: ${commitMessage}`,

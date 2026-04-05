@@ -142,6 +142,17 @@ export async function prepareMergeBackMerge(args: {
     };
   }
 
+  if (!mergeInProgress && statusBefore.stdout.trim().length > 0) {
+    return {
+      alreadyPrepared: false,
+      earlyResult: {
+        status: "aborted",
+        message:
+          "Merge-back aborted: main repo has uncommitted changes. Commit/stash first and rerun resume.",
+      },
+    };
+  }
+
   const branchCheck = await ensureBaseBranchCheckedOut({
     exec: args.exec,
     prompt: args.prompt,
@@ -178,17 +189,6 @@ export async function prepareMergeBackMerge(args: {
       };
     }
     return { alreadyPrepared: true, earlyResult: null };
-  }
-
-  if (statusBefore.stdout.trim().length > 0) {
-    return {
-      alreadyPrepared: false,
-      earlyResult: {
-        status: "aborted",
-        message:
-          "Merge-back aborted: main repo has uncommitted changes. Commit/stash first and rerun resume.",
-      },
-    };
   }
 
   const alreadyMerged = await runGit(args.exec, args.repoPath, [

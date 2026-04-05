@@ -114,6 +114,7 @@ test("merge-back aborts when main repo has uncommitted changes", async () => {
       match:
         "git rev-parse --verify --quiet workflow-2026-03-22-expo-graphql-resolvers",
     },
+    { match: "git rev-parse --verify --quiet MERGE_HEAD", result: { exitCode: 1 } },
     { match: "git status --porcelain=v1", result: { stdout: " M package.json\n" } },
   ]);
 
@@ -136,6 +137,7 @@ test("merge-back runs checks and commits on success", async () => {
       match:
         "git rev-parse --verify --quiet workflow-2026-03-22-expo-graphql-resolvers",
     },
+    { match: "git rev-parse --verify --quiet MERGE_HEAD", result: { exitCode: 1 } },
     { match: "git status --porcelain=v1" },
     { match: "git rev-parse --abbrev-ref HEAD", result: { stdout: "main\n" } },
     {
@@ -194,6 +196,7 @@ test("merge-back aborts merge when post-merge checks fail", async () => {
       match:
         "git rev-parse --verify --quiet workflow-2026-03-22-expo-graphql-resolvers",
     },
+    { match: "git rev-parse --verify --quiet MERGE_HEAD", result: { exitCode: 1 } },
     { match: "git status --porcelain=v1" },
     { match: "git rev-parse --abbrev-ref HEAD", result: { stdout: "main\n" } },
     {
@@ -241,6 +244,7 @@ test("merge-back resolves merge conflicts with task runner", async () => {
       match:
         "git rev-parse --verify --quiet workflow-2026-03-22-expo-graphql-resolvers",
     },
+    { match: "git rev-parse --verify --quiet MERGE_HEAD", result: { exitCode: 1 } },
     { match: "git status --porcelain=v1" },
     { match: "git rev-parse --abbrev-ref HEAD", result: { stdout: "main\n" } },
     {
@@ -289,6 +293,7 @@ test("merge-back aborts when automatic conflict resolution is declined", async (
       match:
         "git rev-parse --verify --quiet workflow-2026-03-22-expo-graphql-resolvers",
     },
+    { match: "git rev-parse --verify --quiet MERGE_HEAD", result: { exitCode: 1 } },
     { match: "git status --porcelain=v1" },
     { match: "git rev-parse --abbrev-ref HEAD", result: { stdout: "main\n" } },
     {
