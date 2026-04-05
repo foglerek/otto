@@ -1,7 +1,7 @@
 import type { OttoConfig } from "@otto/config";
-import type { OttoPromptAdapter } from "@otto/ports";
+import type { OttoPromptAdapter, OttoRunner } from "@otto/ports";
 
-import { createAgUiEventLogger, mapExecEventToAgUi, mapExecStartToAgUi, mapRunEventToAgUi } from "./ag-ui.js";
+import { createAgUiEventLogger, mapExecEventToAgUi, mapExecStartToAgUi, mapRunEventToAgUi, mapRunnerLogToAgUi } from "./ag-ui.js";
 import { createNodeExec } from "./exec.js";
 import {
   attachProcessRegistryExitHandlers,
@@ -43,6 +43,24 @@ function mergeExecEnv(
   return {
     ...defaultEnv,
     ...(overrideEnv ?? {}),
+  };
+}
+
+function wrapRunnerWithAgUiLogs(args: {
+  runner: OttoRunner;
+  appendLogs: (events: ReturnType<typeof mapRunnerLogToAgUi>) => Promise<void>;
+}): OttoRunner {
+  return {
+    kind: args.runner.kind,
+    id: args.runner.id,
+    run: async (options) =>
+      await args.runner.run({
+        ...options,
+        onLog: async (entry) => {
+          await args.appendLogs(mapRunnerLogToAgUi(entry));
+          await options.onLog?.(entry);
+        },
+      }),
   };
 }
 
@@ -138,7 +156,12 @@ export async function runOttoRun(args: {
     registry,
     stateStore,
     state: stateStore.state,
-    runners,
+    runners: {
+      lead: wrapRunnerWithAgUiLogs({ runner: runners.lead, appendLogs: agUiEvents.appendMany }),
+      task: wrapRunnerWithAgUiLogs({ runner: runners.task, appendLogs: agUiEvents.appendMany }),
+      reviewer: wrapRunnerWithAgUiLogs({ runner: runners.reviewer, appendLogs: agUiEvents.appendMany }),
+      summarize: wrapRunnerWithAgUiLogs({ runner: runners.summarize, appendLogs: agUiEvents.appendMany }),
+    },
     reminders: {
       techLead: [],
       task: [],

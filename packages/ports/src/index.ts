@@ -23,6 +23,7 @@ export interface OttoRunnerRunOptions {
   prompt: string;
   cwd: string;
   exec: OttoExec;
+  onLog?: (entry: OttoRunnerLog) => void | Promise<void>;
   sessionId?: string;
   timeoutMs?: number;
   warmingTimeoutMs?: number;

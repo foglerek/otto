@@ -1,5 +1,6 @@
 import type {
   OttoRole,
+  OttoRunnerLog,
   OttoRunner,
   OttoRunnerResult,
   OttoRunnerRunOptions,
@@ -157,15 +158,35 @@ function parseStreamJsonLine(line: string): ClaudeStreamJsonLine | null {
 function parseStreamJsonOutput(args: {
   stdout: string;
   initialSessionId?: string;
-}): { sessionId?: string; finalText?: string; finalIsError: boolean } {
+  runnerId: string;
+}): { sessionId?: string; finalText?: string; finalIsError: boolean; logs: OttoRunnerLog[] } {
   let sessionId: string | undefined = args.initialSessionId;
   let finalText: string | undefined;
   let finalIsError = false;
+  const logs: OttoRunnerLog[] = [];
 
   const lines = args.stdout.split(/\r?\n/);
   for (const line of lines) {
+    if (!line.trim()) continue;
     const parsed = parseStreamJsonLine(line);
-    if (!parsed) continue;
+    if (!parsed) {
+      logs.push({
+        runnerId: args.runnerId,
+        channel: "raw",
+        level: "debug",
+        message: line,
+        raw: line,
+      });
+      continue;
+    }
+
+    logs.push({
+      runnerId: args.runnerId,
+      channel: "raw",
+      level: "debug",
+      message: line,
+      raw: parsed,
+    });
 
     if (typeof parsed.session_id === "string") {
       sessionId = parsed.session_id;
@@ -174,10 +195,19 @@ function parseStreamJsonOutput(args: {
     if (parsed.type === "result") {
       finalIsError = parsed.is_error === true;
       finalText = typeof parsed.result === "string" ? parsed.result : undefined;
+      if (finalText) {
+        logs.push({
+          runnerId: args.runnerId,
+          channel: finalIsError ? "raw" : "agent_message",
+          level: finalIsError ? "error" : "info",
+          message: finalText,
+          raw: parsed,
+        });
+      }
     }
   }
 
-  return { sessionId, finalText, finalIsError };
+  return { sessionId, finalText, finalIsError, logs };
 }
 
 function computeContextOverflow(args: {
@@ -216,7 +246,11 @@ class ClaudeCodeRunner implements OttoRunner {
     const parsed = parseStreamJsonOutput({
       stdout: execResult.stdout,
       initialSessionId: options.sessionId,
+      runnerId: this.id,
     });
+    for (const entry of parsed.logs) {
+      await options.onLog?.(entry);
+    }
 
     const contextOverflow = computeContextOverflow({
       stdout: execResult.stdout,

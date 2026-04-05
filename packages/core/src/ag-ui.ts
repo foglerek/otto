@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { EventType } from "@ag-ui/core";
 
+import type { OttoRunnerLog } from "@otto/ports";
+
 import type { OttoExecEvent, OttoExecStartEvent, OttoRunEvent } from "./workflow/events.js";
 
 export type OttoAgUiEvent = Record<string, unknown> & {
@@ -224,5 +226,21 @@ export function mapExecEventToAgUi(event: OttoExecEvent): OttoAgUiEvent[] {
       timestamp,
       rawEvent: event,
     }),
+  ];
+}
+
+export function mapRunnerLogToAgUi(entry: OttoRunnerLog): OttoAgUiEvent[] {
+  return [
+    {
+      type: EventType.RAW,
+      event: entry.raw ?? {
+        channel: entry.channel,
+        level: entry.level,
+        message: entry.message,
+      },
+      source: `${entry.runnerId}:${entry.channel}`,
+      timestamp: Date.now(),
+      rawEvent: entry,
+    },
   ];
 }

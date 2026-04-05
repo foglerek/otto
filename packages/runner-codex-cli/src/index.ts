@@ -2,6 +2,7 @@ import path from "node:path";
 
 import type {
   OttoRole,
+  OttoRunnerLog,
   OttoRunner,
   OttoRunnerResult,
   OttoRunnerRunOptions,
@@ -118,6 +119,7 @@ type ParsedOutput = {
   lastAgentMessage?: string;
   sawTerminalRecord: boolean;
   nonJsonLines: string[];
+  logs: OttoRunnerLog[];
 };
 
 function parseJsonLine(line: string): any | null {
@@ -217,10 +219,11 @@ function applyJsonRecord(parsed: ParsedOutput, obj: any): void {
   }
 }
 
-function parseStreamJson(stdout: string): ParsedOutput {
+function parseStreamJson(stdout: string, runnerId: string): ParsedOutput {
   const parsed: ParsedOutput = {
     sawTerminalRecord: false,
     nonJsonLines: [],
+    logs: [],
   };
 
   for (const line of stdout.split(/\r?\n/)) {
@@ -230,8 +233,22 @@ function parseStreamJson(stdout: string): ParsedOutput {
     const obj = parseJsonLine(trimmed);
     if (!obj) {
       parsed.nonJsonLines.push(trimmed);
+      parsed.logs.push({
+        runnerId,
+        channel: "raw",
+        level: "debug",
+        message: trimmed,
+        raw: trimmed,
+      });
       continue;
     }
+    parsed.logs.push({
+      runnerId,
+      channel: "raw",
+      level: "debug",
+      message: trimmed,
+      raw: obj,
+    });
     applyJsonRecord(parsed, obj);
   }
 
@@ -261,7 +278,10 @@ class CodexCliRunner implements OttoRunner {
       env: cfg.env,
     });
 
-    const parsed = parseStreamJson(execResult.stdout);
+    const parsed = parseStreamJson(execResult.stdout, this.id);
+    for (const entry of parsed.logs) {
+      await options.onLog?.(entry);
+    }
     const combined = [parsed.finalText, execResult.stdout, execResult.stderr]
       .filter(Boolean)
       .join("\n");
