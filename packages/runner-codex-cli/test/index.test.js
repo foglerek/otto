@@ -355,3 +355,59 @@ test("codex runner emits AG-UI assistant events from agent messages", async () =
   ]);
   assert.equal(events[1].delta, "codex says hi");
 });
+
+test("codex runner emits AG-UI tool call events from command execution items", async () => {
+  const runner = mod.createCodexCliRunner();
+  const calls = [];
+  const events = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout:
+        line({
+          type: "item.started",
+          item: {
+            id: "item_0",
+            type: "command_execution",
+            command: "/bin/zsh -lc 'ls -1A | wc -l'",
+          },
+        }) +
+        line({
+          type: "item.completed",
+          item: {
+            id: "item_0",
+            type: "command_execution",
+            aggregated_output: "26\n",
+          },
+        }) +
+        line({ type: "item.completed", item: { type: "agent_message", text: "26" } }) +
+        line({ type: "turn.completed" }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  await runner.run({
+    role: "lead",
+    phaseName: "plan",
+    prompt: "count",
+    cwd: process.cwd(),
+    exec,
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[0].toolCallName, "command_execution");
+  assert.equal(events[3].content, "26");
+});

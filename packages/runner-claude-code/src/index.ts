@@ -11,7 +11,15 @@ type ClaudeStreamJsonLine = {
   session_id?: string;
   result?: unknown;
   is_error?: boolean;
-};
+} & Record<string, unknown>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
 
 type ModelConfig = {
   model: string;
@@ -243,6 +251,167 @@ async function emitAssistantText(args: {
   });
 }
 
+async function emitToolCallStart(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  toolCallId: string;
+  toolCallName: string;
+  input?: unknown;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TOOL_CALL_START",
+    toolCallId: args.toolCallId,
+    toolCallName: args.toolCallName,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TOOL_CALL_ARGS",
+    toolCallId: args.toolCallId,
+    delta: JSON.stringify(args.input ?? {}),
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitToolCallEnd(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  toolCallId: string;
+  resultText: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TOOL_CALL_END",
+    toolCallId: args.toolCallId,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TOOL_CALL_RESULT",
+    messageId: `tool-result-${args.toolCallId}`,
+    toolCallId: args.toolCallId,
+    content: args.resultText,
+    role: "tool",
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function handleAssistantMessage(args: {
+  parsed: ClaudeStreamJsonLine;
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  nextMessageId: () => string;
+  getLastLiveMessage: () => string;
+  setLastLiveMessage: (value: string) => void;
+}): Promise<boolean> {
+  if (!(args.parsed.type === "assistant" && isRecord(args.parsed.message) && Array.isArray(args.parsed.message.content))) {
+    return false;
+  }
+
+  for (const item of args.parsed.message.content) {
+    if (!isRecord(item)) continue;
+    if (item.type === "tool_use") {
+      const toolCallId = asString(item.id);
+      const toolCallName = asString(item.name);
+      if (toolCallId && toolCallName) {
+        await emitToolCallStart({
+          onEvent: args.onEvent,
+          toolCallId,
+          toolCallName,
+          input: item.input,
+          rawEvent: args.parsed,
+        });
+      }
+    }
+    if (item.type === "text") {
+      const text = asString(item.text);
+      if (text && text !== args.getLastLiveMessage()) {
+        args.setLastLiveMessage(text);
+        await emitAssistantText({
+          onEvent: args.onEvent,
+          messageId: args.nextMessageId(),
+          text,
+          rawEvent: args.parsed,
+        });
+      }
+    }
+  }
+
+  return true;
+}
+
+async function handleUserToolResult(args: {
+  parsed: ClaudeStreamJsonLine;
+  onEvent: OttoRunnerRunOptions["onEvent"];
+}): Promise<boolean> {
+  if (!(args.parsed.type === "user" && isRecord(args.parsed.message) && Array.isArray(args.parsed.message.content))) {
+    return false;
+  }
+
+  for (const item of args.parsed.message.content) {
+    if (!isRecord(item) || item.type !== "tool_result") continue;
+    const toolCallId = asString(item.tool_use_id);
+    const resultText = asString(item.content) ?? "";
+    if (toolCallId) {
+      await emitToolCallEnd({
+        onEvent: args.onEvent,
+        toolCallId,
+        resultText,
+        rawEvent: args.parsed,
+      });
+    }
+  }
+
+  return true;
+}
+
+async function handleClaudeStdoutLine(args: {
+  line: string;
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  nextMessageId: () => string;
+  getLastLiveMessage: () => string;
+  setLastLiveMessage: (value: string) => void;
+}): Promise<void> {
+  const parsed = parseStreamJsonLine(args.line);
+  if (!parsed) {
+    return;
+  }
+
+  if (await handleAssistantMessage({ ...args, parsed })) {
+    return;
+  }
+
+  if (await handleUserToolResult({ parsed, onEvent: args.onEvent })) {
+    return;
+  }
+
+  if (parsed.type !== "result") {
+    return;
+  }
+
+  const resultText = typeof parsed.result === "string" ? parsed.result : undefined;
+  if (!resultText || parsed.is_error === true || resultText === args.getLastLiveMessage()) {
+    return;
+  }
+  args.setLastLiveMessage(resultText);
+  await emitAssistantText({
+    onEvent: args.onEvent,
+    messageId: args.nextMessageId(),
+    text: resultText,
+    rawEvent: parsed,
+  });
+}
+
 function computeContextOverflow(args: {
   stdout: string;
   stderr: string;
@@ -269,29 +438,23 @@ class ClaudeCodeRunner implements OttoRunner {
     const claudeArgs = buildClaudeArgs(options, modelConfig);
 
     let messageCount = 0;
+    let lastLiveMessage = "";
     const execResult = await options.exec.run(["claude", ...claudeArgs], {
       cwd: options.cwd,
       env: buildClaudeEnv(modelConfig),
       timeoutMs,
       stdin: options.prompt,
       label: `claude:${options.phaseName}:${options.role}`,
-      onStdoutLine: async (line) => {
-        const parsed = parseStreamJsonLine(line);
-        if (!parsed || parsed.type !== "result") {
-          return;
-        }
-        const resultText = typeof parsed.result === "string" ? parsed.result : undefined;
-        if (!resultText || parsed.is_error === true) {
-          return;
-        }
-        messageCount += 1;
-        await emitAssistantText({
+      onStdoutLine: async (line) =>
+        await handleClaudeStdoutLine({
+          line,
           onEvent: options.onEvent,
-          messageId: `${this.id}-message-${messageCount}`,
-          text: resultText,
-          rawEvent: parsed,
-        });
-      },
+          nextMessageId: () => `${this.id}-message-${++messageCount}`,
+          getLastLiveMessage: () => lastLiveMessage,
+          setLastLiveMessage: (value) => {
+            lastLiveMessage = value;
+          },
+        }),
     });
 
     const parsed = parseStreamJsonOutput({

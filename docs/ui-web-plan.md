@@ -167,6 +167,8 @@ Near-term validation priority:
 - dogfood and validate `codex-cli` AG-UI semantics second
 - finish an explicit runner-by-runner AG-UI coverage map before v1 release
 
+Current mapping reference: `docs/ag-ui-runner-mapping.md`
+
 Short term:
 
 - bridge the existing `OttoPromptAdapter` model on the server so browser-driven `start` / `resume` can work soon

@@ -291,6 +291,146 @@ async function emitAssistantText(args: {
   });
 }
 
+async function emitToolCallStart(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  toolCallId: string;
+  toolCallName: string;
+  command: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TOOL_CALL_START",
+    toolCallId: args.toolCallId,
+    toolCallName: args.toolCallName,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TOOL_CALL_ARGS",
+    toolCallId: args.toolCallId,
+    delta: args.command,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function emitToolCallEnd(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  toolCallId: string;
+  output: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TOOL_CALL_END",
+    toolCallId: args.toolCallId,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TOOL_CALL_RESULT",
+    messageId: `tool-result-${args.toolCallId}`,
+    toolCallId: args.toolCallId,
+    content: args.output,
+    role: "tool",
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+}
+
+async function maybeEmitCommandStart(args: {
+  obj: any;
+  onEvent: OttoRunnerRunOptions["onEvent"];
+}): Promise<boolean> {
+  if (!(args.obj?.type === "item.started" && args.obj?.item?.type === "command_execution")) {
+    return false;
+  }
+  const toolCallId = asString(args.obj?.item?.id);
+  const command = asString(args.obj?.item?.command);
+  if (toolCallId && command) {
+    await emitToolCallStart({
+      onEvent: args.onEvent,
+      toolCallId,
+      toolCallName: "command_execution",
+      command,
+      rawEvent: args.obj,
+    });
+  }
+  return true;
+}
+
+async function maybeEmitCommandEnd(args: {
+  obj: any;
+  onEvent: OttoRunnerRunOptions["onEvent"];
+}): Promise<boolean> {
+  if (!(args.obj?.type === "item.completed" && args.obj?.item?.type === "command_execution")) {
+    return false;
+  }
+  const toolCallId = asString(args.obj?.item?.id);
+  const output = asString(args.obj?.item?.aggregated_output) ?? "";
+  if (toolCallId) {
+    await emitToolCallEnd({
+      onEvent: args.onEvent,
+      toolCallId,
+      output,
+      rawEvent: args.obj,
+    });
+  }
+  return true;
+}
+
+async function handleCodexStdoutLine(args: {
+  line: string;
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  nextMessageId: () => string;
+  getLastLiveMessage: () => string;
+  setLastLiveMessage: (value: string) => void;
+}): Promise<void> {
+  const trimmed = args.line.trim();
+  if (!trimmed) return;
+  const obj = parseJsonLine(trimmed);
+  if (!obj) return;
+
+  if (await maybeEmitCommandStart({ obj, onEvent: args.onEvent })) {
+    return;
+  }
+  if (await maybeEmitCommandEnd({ obj, onEvent: args.onEvent })) {
+    return;
+  }
+
+  const message = extractAgentMessage(obj);
+  if (message && message !== args.getLastLiveMessage()) {
+    args.setLastLiveMessage(message);
+    await emitAssistantText({
+      onEvent: args.onEvent,
+      messageId: args.nextMessageId(),
+      text: message,
+      rawEvent: obj,
+    });
+    return;
+  }
+
+  if (isFinalRecord(obj)) {
+    const textCandidate = extractTextCandidate(obj);
+    if (textCandidate && textCandidate !== args.getLastLiveMessage()) {
+      args.setLastLiveMessage(textCandidate);
+      await emitAssistantText({
+        onEvent: args.onEvent,
+        messageId: args.nextMessageId(),
+        text: textCandidate,
+        rawEvent: obj,
+      });
+    }
+  }
+}
+
 class CodexCliRunner implements OttoRunner {
   readonly kind = "codex-cli";
   readonly id = "codex-cli";
@@ -310,39 +450,16 @@ class CodexCliRunner implements OttoRunner {
       timeoutMs: options.timeoutMs ?? 10 * 60_000,
       label: `codex:${options.phaseName}:${options.role}`,
       env: cfg.env,
-      onStdoutLine: async (line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
-        const obj = parseJsonLine(trimmed);
-        if (!obj) return;
-
-        const message = extractAgentMessage(obj);
-        if (message && message !== lastLiveMessage) {
-          lastLiveMessage = message;
-          messageCount += 1;
-          await emitAssistantText({
-            onEvent: options.onEvent,
-            messageId: `${this.id}-message-${messageCount}`,
-            text: message,
-            rawEvent: obj,
-          });
-          return;
-        }
-
-        if (isFinalRecord(obj)) {
-          const textCandidate = extractTextCandidate(obj);
-          if (textCandidate && textCandidate !== lastLiveMessage) {
-            lastLiveMessage = textCandidate;
-            messageCount += 1;
-            await emitAssistantText({
-              onEvent: options.onEvent,
-              messageId: `${this.id}-message-${messageCount}`,
-              text: textCandidate,
-              rawEvent: obj,
-            });
-          }
-        }
-      },
+      onStdoutLine: async (line) =>
+        await handleCodexStdoutLine({
+          line,
+          onEvent: options.onEvent,
+          nextMessageId: () => `${this.id}-message-${++messageCount}`,
+          getLastLiveMessage: () => lastLiveMessage,
+          setLastLiveMessage: (value) => {
+            lastLiveMessage = value;
+          },
+        }),
     });
 
     const parsed = parseStreamJson(execResult.stdout, this.id);

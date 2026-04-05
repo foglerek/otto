@@ -290,3 +290,67 @@ test("runner emits AG-UI assistant events", async () => {
   ]);
   assert.equal(events[1].delta, "hello from claude");
 });
+
+test("runner emits AG-UI tool call events", async () => {
+  const runner = mod.createClaudeCodeRunner();
+  const calls = [];
+  const events = [];
+  const exec = makeExec(
+    {
+      exitCode: 0,
+      stdout:
+        resultLine({
+          type: "assistant",
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_1",
+                name: "Bash",
+                input: { command: "ls | wc -l" },
+              },
+            ],
+          },
+        }) +
+        resultLine({
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_1",
+                content: "17",
+              },
+            ],
+          },
+        }) +
+        resultLine({ type: "result", result: "17", is_error: false }),
+      stderr: "",
+      timedOut: false,
+    },
+    calls,
+  );
+
+  await runner.run({
+    role: "lead",
+    phaseName: "plan",
+    prompt: "count",
+    cwd: process.cwd(),
+    exec,
+    onEvent: async (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(events.map((event) => event.type), [
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+  ]);
+  assert.equal(events[0].toolCallName, "Bash");
+  assert.equal(events[3].content, "17");
+});
