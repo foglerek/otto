@@ -30,9 +30,9 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
 
 .overview-run-card {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
-  padding: 16px;
+  padding: 18px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(19, 29, 42, 0.94), rgba(15, 22, 32, 0.98));
@@ -42,14 +42,49 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
   cursor: pointer;
 }
 
+.overview-run-card:hover {
+  border-color: rgba(202, 214, 229, 0.22);
+}
+
 .overview-run-card.active {
   border-color: rgba(88, 166, 255, 0.28);
   background: linear-gradient(180deg, rgba(88, 166, 255, 0.16), rgba(19, 29, 42, 0.98));
 }
 
-.overview-run-topline {
-  font-size: 16px;
-  letter-spacing: -0.02em;
+.overview-run-header,
+.project-chat-header,
+.project-story-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.overview-run-title {
+  display: block;
+  font-size: 17px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.overview-run-note,
+.project-story-body {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.overview-run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.overview-run-footer {
+  color: var(--text-faint);
+  font-size: 11px;
 }
 
 .stage-strip {
@@ -63,7 +98,7 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
   position: relative;
   display: grid;
   justify-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .stage-strip-node::before {
@@ -116,6 +151,13 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
   text-align: center;
 }
 
+.stage-kicker {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
 .project-chat-shell {
   min-height: 68vh;
   border: 1px solid var(--border);
@@ -126,9 +168,16 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
   align-content: space-between;
 }
 
+.project-chat-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .project-chat-body {
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .project-chat-title {
@@ -145,7 +194,68 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
   line-height: 1.5;
 }
 
-.project-inline-feed .timeline-card {
+.project-story-shell {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(202, 214, 229, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.project-section-title,
+.project-story-title {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.project-story-list {
+  display: grid;
+  gap: 14px;
+}
+
+.project-story-card {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.project-story-marker {
+  width: 10px;
+  height: 10px;
+  margin-top: 14px;
+  border-radius: 999px;
+  background: rgba(202, 214, 229, 0.35);
+}
+
+.project-story-content {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(202, 214, 229, 0.08);
+  background: rgba(8, 12, 18, 0.42);
+}
+
+.project-story-running .project-story-marker {
+  background: rgba(88, 166, 255, 0.95);
+}
+
+.project-story-done .project-story-marker {
+  background: rgba(89, 197, 138, 0.95);
+}
+
+.project-story-attention .project-story-marker {
+  background: rgba(217, 164, 65, 0.95);
+}
+
+.project-story-empty {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border-radius: var(--radius);
+  border: 1px dashed rgba(202, 214, 229, 0.16);
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -169,21 +279,25 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
 
 .run-progress-strip {
   display: flex;
-  align-items: start;
   justify-content: center;
+  align-items: stretch;
   gap: 12px;
-  overflow: auto;
   padding: 8px 0 4px;
+  width: 100%;
+  overflow: hidden;
+  min-width: 0;
 }
 
-.run-progress-segment {
-  min-width: 172px;
+.run-progress-group {
   display: grid;
   gap: 10px;
   padding: 14px;
   border-radius: var(--radius-lg);
   border: 1px solid rgba(202, 214, 229, 0.12);
   background: rgba(255, 255, 255, 0.02);
+  min-width: 0;
+  flex: 1 1 220px;
+  max-width: min(360px, 100%);
 }
 
 .run-progress-current {
@@ -195,10 +309,28 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
   border-color: rgba(89, 197, 138, 0.2);
 }
 
+.run-progress-steps {
+  display: flex;
+  align-items: flex-start;
+  justify-content: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+
+.run-progress-step {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 84px;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
 .run-progress-line {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .run-progress-dot {
@@ -219,6 +351,16 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
   border-color: rgba(88, 166, 255, 1);
 }
 
+.run-progress-step-current .run-progress-dot {
+  background: rgba(88, 166, 255, 0.95);
+  border-color: rgba(88, 166, 255, 1);
+}
+
+.run-progress-step-done .run-progress-dot {
+  background: rgba(89, 197, 138, 0.95);
+  border-color: rgba(89, 197, 138, 1);
+}
+
 .run-progress-connector {
   flex: 1;
   height: 2px;
@@ -230,6 +372,8 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
   font-size: 13px;
   color: var(--text-secondary);
   text-transform: capitalize;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .prompt-panel {
@@ -267,6 +411,12 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
 
   .project-shell {
     grid-template-columns: 1fr;
+  }
+
+  .overview-run-header,
+  .project-chat-header,
+  .project-story-topline {
+    flex-direction: column;
   }
 }
 

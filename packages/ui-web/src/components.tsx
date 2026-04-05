@@ -359,7 +359,7 @@ function RunDetail(props: {
     <div className="stack">
       <section className="header-block">
         <div className="toolbar detail-header">
-          <div>
+          <div style={{ minWidth: 0 }}>
             <p className="eyebrow">Run detail</p>
             <h1 className="title detail-title">{selected.summary.ticketSlug || selected.summary.runId}</h1>
             <p className="subtle mono">{selected.summary.runId}</p>
@@ -442,7 +442,7 @@ export function AppLayout(props: {
   onToggleDone: (runId: string, markedDone: boolean) => void;
 }): React.JSX.Element {
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${props.state.viewMode === "overview" ? "app-shell-overview" : "app-shell-details"}`}>
       {props.state.viewMode === "details" ? (
         <Sidebar
           state={props.state}

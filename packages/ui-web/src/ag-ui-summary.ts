@@ -21,16 +21,16 @@ function summarizeRunEvent(runId: string, event: AgUiEvent) {
 }
 
 function summarizeMessageEvent(event: AgUiEvent) {
-  if (event.type === "TEXT_MESSAGE_CONTENT") return { title: "Assistant message", meta: event.messageId || "", body: truncateText(String(event.delta || ""), 1200) };
-  if (event.type === "TEXT_MESSAGE_START" || event.type === "TEXT_MESSAGE_END") return { title: event.type === "TEXT_MESSAGE_START" ? "Message started" : "Message ended", meta: event.messageId || "", body: "" };
+  if (event.type === "TEXT_MESSAGE_CONTENT") return { title: "Assistant update", meta: "", body: truncateText(String(event.delta || ""), 1200) };
+  if (event.type === "TEXT_MESSAGE_START" || event.type === "TEXT_MESSAGE_END") return { title: event.type === "TEXT_MESSAGE_START" ? "Assistant is responding" : "Assistant finished responding", meta: "", body: "" };
   return null;
 }
 
 function summarizeToolEvent(event: AgUiEvent) {
-  if (event.type === "TOOL_CALL_START") return { title: "Tool started", meta: event.toolCallName || event.toolCallId || "", body: `Tool call started: ${String(event.toolCallName || event.toolCallId || "unknown")}` };
-  if (event.type === "TOOL_CALL_ARGS") return { title: "Tool input", meta: event.toolCallId || "", body: summarizeToolArgs(event.delta) };
-  if (event.type === "TOOL_CALL_RESULT") return { title: "Tool result", meta: event.toolCallId || "", body: truncateText(String(event.content || ""), 1200) };
-  if (event.type === "TOOL_CALL_END") return { title: "Tool ended", meta: event.toolCallId || "", body: "" };
+  if (event.type === "TOOL_CALL_START") return { title: `Starting ${String(event.toolCallName || "tool")}`, meta: "", body: `Otto started ${String(event.toolCallName || event.toolCallId || "a tool call")}.` };
+  if (event.type === "TOOL_CALL_ARGS") return { title: `Preparing ${String(event.toolCallName || "tool")}`, meta: "", body: summarizeToolArgs(event.delta) };
+  if (event.type === "TOOL_CALL_RESULT") return { title: `Finished ${String(event.toolCallName || "tool")}`, meta: "", body: truncateText(String(event.content || ""), 1200) };
+  if (event.type === "TOOL_CALL_END") return { title: `Completed ${String(event.toolCallName || "tool")}`, meta: "", body: "" };
   return null;
 }
 
@@ -75,13 +75,13 @@ function summarizeCustomEvent(event: AgUiEvent) {
 
 function summarizeReasoningEvent(event: AgUiEvent) {
   const value = asRecord(event.value);
-  return { title: "Reasoning", meta: "", body: truncateText(asString(value?.text) || JSON.stringify(event.value || {}, null, 2), 1200) };
+  return { title: "Thinking", meta: "", body: truncateText(asString(value?.text) || JSON.stringify(event.value || {}, null, 2), 1200) };
 }
 
 function summarizeControlPlaneEvent(event: AgUiEvent) {
   const jobs = Array.isArray(event.value?.jobs) ? event.value.jobs.length : 0;
   const prompts = Array.isArray(event.value?.prompts) ? event.value.prompts.length : 0;
-  return { title: "Control plane", meta: `jobs ${jobs} / prompts ${prompts}`, body: prompts > 0 ? `Operator input is required for ${prompts} prompt${prompts === 1 ? "" : "s"}.` : `No outstanding prompts. ${jobs} tracked job${jobs === 1 ? "" : "s"}.` };
+  return { title: prompts > 0 ? "Waiting for operator" : "Control plane update", meta: `jobs ${jobs} / prompts ${prompts}`, body: prompts > 0 ? `Operator input is required for ${prompts} prompt${prompts === 1 ? "" : "s"}.` : `No outstanding prompts. ${jobs} tracked job${jobs === 1 ? "" : "s"}.` };
 }
 
 function summarizePhaseTransition(event: AgUiEvent) {
@@ -89,7 +89,7 @@ function summarizePhaseTransition(event: AgUiEvent) {
   const data = asRecord(value?.data);
   const from = asString(data?.from);
   const to = asString(data?.to);
-  return { title: "Phase transition", meta: to || "", body: from && to ? `Workflow moved from ${from} to ${to}.` : "Workflow phase changed." };
+  return { title: to ? `Moved into ${to}` : "Workflow phase changed", meta: "", body: from && to ? `Workflow moved from ${from} to ${to}.` : "Workflow phase changed." };
 }
 
 function summarizePhaseEntered(event: AgUiEvent) {
@@ -97,12 +97,12 @@ function summarizePhaseEntered(event: AgUiEvent) {
   const data = asRecord(value?.data);
   const phase = asString(data?.phase);
   const step = data?.step;
-  return { title: "Phase entered", meta: phase || "", body: phase ? `Entered ${phase}${typeof step === "number" ? ` (step ${step})` : ""}.` : "Entered a workflow phase." };
+  return { title: phase ? `Starting ${phase}` : "Entered workflow phase", meta: "", body: phase ? `Entered ${phase}${typeof step === "number" ? ` (step ${step})` : ""}.` : "Entered a workflow phase." };
 }
 
 function summarizeExecStart(event: AgUiEvent) {
   const value = asRecord(event.value);
-  return { title: "Command started", meta: asString(value?.label) || "", body: truncateText((Array.isArray(value?.cmd) ? value?.cmd.join(" ") : asString(value?.label)) || "", 800) };
+  return { title: `Running ${asString(value?.label) || "command"}`, meta: "", body: truncateText((Array.isArray(value?.cmd) ? value?.cmd.join(" ") : asString(value?.label)) || "", 800) };
 }
 
 function summarizeExecResult(event: AgUiEvent) {
@@ -110,7 +110,7 @@ function summarizeExecResult(event: AgUiEvent) {
   const exitCode = value?.exitCode;
   const timedOut = value?.timedOut;
   const label = asString(value?.label) || "command";
-  return { title: "Command finished", meta: label, body: `${label} finished with exit=${exitCode}${timedOut ? " (timed out)" : ""}.` };
+  return { title: `Finished ${label}`, meta: "", body: `${label} finished with exit=${exitCode}${timedOut ? " (timed out)" : ""}.` };
 }
 
 function summarizeRawEvent(event: AgUiEvent) {

@@ -50,6 +50,8 @@ textarea {
 
 #app {
   min-height: 100vh;
+  width: 100%;
+  overflow-x: clip;
 }
 
 .shell-loading,
@@ -81,8 +83,14 @@ textarea {
 
 .app-shell {
   min-height: 100vh;
+  width: 100%;
   display: grid;
   grid-template-columns: 372px minmax(0, 1fr);
+  overflow-x: clip;
+}
+
+.app-shell-overview {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .sidebar {
@@ -96,10 +104,13 @@ textarea {
 }
 
 .main {
+  min-width: 0;
   padding: 28px;
   display: grid;
   align-content: start;
+  justify-items: stretch;
   gap: 24px;
+  overflow-x: clip;
 }
 
 .view-toggle-bar {
@@ -132,6 +143,7 @@ textarea {
 .artifact-card,
 .timeline-card {
   padding: 20px;
+  min-width: 0;
 }
 
 .summary-grid {
@@ -228,7 +240,14 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+  min-width: 0;
+}
+
+.run-row-title > *,
+.detail-topline > * {
+  min-width: 0;
 }
 
 .run-row p,

@@ -1,7 +1,25 @@
 import React from "react";
 
-import { fullPhaseProgress, formatDate, presentStageName } from "./helpers.js";
+import { formatDate, presentStageName, visiblePhaseProgress } from "./helpers.js";
 import type { RunDetailData } from "./types.js";
+
+function useElementWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+  const ref = React.useRef<T | null>(null);
+  const [width, setWidth] = React.useState(0);
+
+  React.useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      setWidth(entries[0]?.contentRect.width ?? 0);
+    });
+    observer.observe(node);
+    setWidth(node.getBoundingClientRect().width);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, width];
+}
 
 export function RunDetailStats(props: { detail: RunDetailData }): React.JSX.Element {
   const { detail } = props;
@@ -33,17 +51,26 @@ export function RunDetailStats(props: { detail: RunDetailData }): React.JSX.Elem
 }
 
 export function RunProgressStrip(props: { phase: string | null }): React.JSX.Element {
-  const progress = fullPhaseProgress(props.phase);
+  const [ref, width] = useElementWidth<HTMLDivElement>();
+  const visibleStepCount = width > 1320 ? 9 : width > 1120 ? 7 : width > 820 ? 5 : width > 560 ? 4 : 3;
+  const visibleGroups = visiblePhaseProgress(props.phase, visibleStepCount);
+
   return (
-    <div className="run-progress-strip">
-      {progress.map((item, index) => (
-        <div className={`run-progress-segment run-progress-${item.state}`} key={item.name} style={item.state === "current" ? { order: 2 } : item.state === "done" ? { order: 1 - index } : { order: 3 + index }}>
-          <p className="eyebrow">Phase</p>
-          <div className="run-progress-line">
-            <span className="run-progress-dot" />
-            <span className="run-progress-connector" />
+    <div className="run-progress-strip" ref={ref}>
+      {visibleGroups.map((group) => (
+        <div className={`run-progress-group run-progress-${group.state}`} key={group.title}>
+          <p className="eyebrow">{group.title}</p>
+          <div className="run-progress-steps">
+            {group.steps.map((item, index) => (
+              <div className={`run-progress-step run-progress-step-${item.state}`} key={`${group.title}-${item.name}`}>
+                <div className="run-progress-line">
+                  <span className="run-progress-dot" />
+                  {index < group.steps.length - 1 ? <span className="run-progress-connector" /> : null}
+                </div>
+                <p className="run-progress-label">{presentStageName(item.name)}</p>
+              </div>
+            ))}
           </div>
-          <p className="run-progress-label">{presentStageName(item.name)}</p>
         </div>
       ))}
     </div>

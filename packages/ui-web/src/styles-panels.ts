@@ -54,16 +54,19 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .detail-actions {
   display: grid;
   justify-items: end;
   gap: 10px;
+  min-width: 0;
 }
 
 .detail-header {
   align-items: start;
+  flex-wrap: wrap;
 }
 
 .button {
@@ -199,6 +202,7 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
 .timeline-entry-body {
   display: grid;
   gap: 10px;
+  min-width: 0;
   padding: 14px;
   border-radius: var(--radius);
   border: 1px solid rgba(202, 214, 229, 0.08);
@@ -207,6 +211,8 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
 
 .timeline-entry-text {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: var(--text-secondary);
   line-height: 1.5;
 }

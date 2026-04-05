@@ -1,12 +1,18 @@
 import { summarizeAgUiEvent } from "./ag-ui-summary.js";
 import type { AgUiEvent } from "./types.js";
 
+function humanizeToolName(value: string | undefined): string {
+  if (!value) return "tool";
+  return value.replace(/[-_]+/g, " ");
+}
+
 export type AgUiTimelineItem = {
   kind: "message" | "tool" | "reasoning" | "control" | "event";
   title: string;
   meta: string;
   body: string;
   timestamp?: number;
+  status?: "running" | "done" | "attention" | "neutral";
 };
 
 function hiddenInPrimaryFeed(event: AgUiEvent): boolean {
@@ -27,10 +33,11 @@ function consumeMessageEvent(items: AgUiTimelineItem[], byMessageId: Map<string,
   const id = event.messageId || `message-${items.length}`;
   const existing = byMessageId.get(id) ?? {
     kind: "message" as const,
-    title: "Assistant",
-    meta: id,
+    title: "Otto",
+    meta: "",
     body: "",
     timestamp: event.timestamp,
+    status: "done" as const,
   };
   if (event.type === "TEXT_MESSAGE_CONTENT") {
     existing.body += `${event.delta || ""}`;
@@ -49,16 +56,21 @@ function consumeToolEvent(items: AgUiTimelineItem[], byToolId: Map<string, AgUiT
   const id = event.toolCallId || `tool-${items.length}`;
   const existing = byToolId.get(id) ?? {
     kind: "tool" as const,
-    title: event.toolCallName || "Tool",
-    meta: id,
+    title: `Used ${humanizeToolName(event.toolCallName)}`,
+    meta: "",
     body: "",
     timestamp: event.timestamp,
+    status: "running" as const,
   };
   if (event.type === "TOOL_CALL_ARGS") {
     existing.body = existing.body ? `${existing.body}\n\nInput:\n${event.delta || ""}` : `Input:\n${event.delta || ""}`;
   }
   if (event.type === "TOOL_CALL_RESULT") {
     existing.body = existing.body ? `${existing.body}\n\nResult:\n${event.content || ""}` : `Result:\n${event.content || ""}`;
+    existing.status = "done";
+  }
+  if (event.type === "TOOL_CALL_END") {
+    existing.status = "done";
   }
   if (!byToolId.has(id)) {
     byToolId.set(id, existing);
@@ -71,6 +83,15 @@ function classifyNonGroupedEvent(event: AgUiEvent): AgUiTimelineItem["kind"] {
   if (event.type === "CUSTOM" && event.name === "otto.reasoning") return "reasoning";
   if (event.type === "CUSTOM" && event.name === "otto.control_plane") return "control";
   return "event";
+}
+
+function classifyStatus(event: AgUiEvent): AgUiTimelineItem["status"] {
+  if (event.type === "RUN_ERROR") return "attention";
+  if (event.type === "CUSTOM" && event.name === "otto.control_plane") return "attention";
+  if (event.type === "CUSTOM" && event.name === "otto.reasoning") return "running";
+  if (event.type === "RUN_FINISHED") return "done";
+  if (event.type === "RUN_STARTED") return "running";
+  return "neutral";
 }
 
 export function buildAgUiTimeline(runId: string, events: AgUiEvent[]): AgUiTimelineItem[] {
@@ -94,6 +115,7 @@ export function buildAgUiTimeline(runId: string, events: AgUiEvent[]): AgUiTimel
       meta: summary.meta,
       body: summary.body,
       timestamp: event.timestamp,
+      status: classifyStatus(event),
     });
   }
 

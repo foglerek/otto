@@ -1,7 +1,8 @@
 import React from "react";
 
-import { AgUiFeed, PromptInbox } from "./components.js";
-import { compactRunStages, formatDate, presentStageName, statusBadgeClass } from "./helpers.js";
+import { PromptInbox } from "./components.js";
+import { buildAgUiTimeline, splitAgUiEvents } from "./ag-ui-timeline.js";
+import { compactRunStages, formatDate, getRunDisplayStatus, getRunStatusNote, presentStageName, statusBadgeClass } from "./helpers.js";
 import type { AppState, DashboardData, DashboardRunSummary, RunDetailData } from "./types.js";
 
 export type OverviewPanel = "create" | "ingest" | "start" | null;
@@ -11,27 +12,42 @@ function OverviewRunCard(props: {
   selected: boolean;
   onSelect: () => void;
 }): React.JSX.Element {
-  const status = props.run.isMarkedDone ? "done" : props.run.processStatus === "active" ? "running" : props.run.needsUserInput ? "paused" : props.run.processStatus;
+  const status = getRunDisplayStatus(props.run);
   const stages = compactRunStages(props.run.phase);
   return (
     <button className={`overview-run-card${props.selected ? " active" : ""}`} onClick={props.onSelect}>
-      <div className="overview-run-topline">
-        <strong>{status}: {props.run.ticketSlug || props.run.runId}</strong>
+      <div className="overview-run-header">
+        <div className="stack" style={{ gap: 6 }}>
+          <p className="eyebrow">{status}</p>
+          <strong className="overview-run-title">{props.run.ticketSlug || props.run.runId}</strong>
+        </div>
+        <span className={`badge ${statusBadgeClass(status)}`}>{status}</span>
+      </div>
+      <p className="overview-run-note">{getRunStatusNote(props.run)}</p>
+      <div className="overview-run-meta">
+        <span className="badge">phase {presentStageName(props.run.phase)}</span>
+        <span className="badge">queue {props.run.taskQueueLength}</span>
+        {props.run.finalReportAvailable ? <span className="badge">report ready</span> : null}
+        {props.run.needsUserInput ? <span className="badge waiting">prompt waiting</span> : null}
       </div>
       <div className="stage-strip">
-        <div className="stage-strip-node done">
+        <div className={`stage-strip-node ${status === "running" || status === "paused" || status === "errored" || status === "done" ? "done" : ""}`}>
           <span className="stage-dot" />
+          <span className="stage-kicker">Previous</span>
           <span className="stage-label">{presentStageName(stages.previous)}</span>
         </div>
-        <div className={`stage-strip-node ${status === "paused" ? "waiting" : status === "stale" ? "stale" : status === "done" ? "done" : "active"}`}>
+        <div className={`stage-strip-node ${status === "paused" ? "waiting" : status === "errored" ? "stale" : status === "done" ? "done" : "active"}`}>
           <span className="stage-dot" />
+          <span className="stage-kicker">Now</span>
           <span className="stage-label">{presentStageName(stages.current)}</span>
         </div>
         <div className="stage-strip-node">
           <span className="stage-dot" />
+          <span className="stage-kicker">Next</span>
           <span className="stage-label">{presentStageName(stages.next)}</span>
         </div>
       </div>
+      <p className="overview-run-footer mono">{props.run.runId}</p>
     </button>
   );
 }
@@ -42,10 +58,10 @@ function OverviewSidebar(props: {
 }): React.JSX.Element {
   const dashboard = props.state.dashboard as DashboardData;
   const groups = [
-    { title: "Running", runs: dashboard.runs.filter((run) => !run.isMarkedDone && run.processStatus === "active") },
-    { title: "Paused", runs: dashboard.runs.filter((run) => !run.isMarkedDone && run.processStatus !== "active" && run.needsUserInput) },
-    { title: "Errored", runs: dashboard.runs.filter((run) => !run.isMarkedDone && run.processStatus === "stale") },
-    { title: "Done", runs: dashboard.runs.filter((run) => run.isMarkedDone || run.processStatus === "inactive") },
+    { title: "Running", runs: dashboard.runs.filter((run) => getRunDisplayStatus(run) === "running") },
+    { title: "Paused", runs: dashboard.runs.filter((run) => getRunDisplayStatus(run) === "paused") },
+    { title: "Errored", runs: dashboard.runs.filter((run) => getRunDisplayStatus(run) === "errored") },
+    { title: "Done", runs: dashboard.runs.filter((run) => getRunDisplayStatus(run) === "done") },
   ];
 
   return (
@@ -64,6 +80,47 @@ function OverviewSidebar(props: {
   );
 }
 
+function OverviewStory(props: {
+  run: DashboardRunSummary;
+  state: AppState;
+}): React.JSX.Element {
+  const events = props.state.agUiEventsByRun[props.run.runId] || [];
+  const timeline = buildAgUiTimeline(props.run.runId, splitAgUiEvents(events).primary);
+
+  if (timeline.length === 0) {
+    return (
+      <div className="project-story-empty">
+        <p className="eyebrow">Story</p>
+        <h3 className="project-section-title">No story yet</h3>
+        <p className="subtle">This run has not emitted grouped AG-UI events yet. Resume it or switch to details for raw artifacts and event logs.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="project-story-list">
+      {[...timeline].reverse().map((item, index) => (
+        <article className={`project-story-card ${item.status ? `project-story-${item.status}` : ""}`} key={`${item.timestamp || index}-${item.title}-${index}`}>
+          <div className="project-story-marker" />
+          <div className="project-story-content">
+            <div className="detail-topline">
+              <div>
+                <p className="eyebrow">{item.kind}</p>
+                <h3 className="project-story-title">{item.title}</h3>
+              </div>
+              <div className="badge-row">
+                {item.meta ? <span className="badge mono">{item.meta}</span> : null}
+                <span className="badge mono">{item.timestamp ? formatDate(item.timestamp) : "-"}</span>
+              </div>
+            </div>
+            {item.body ? <div className="project-story-body">{item.body}</div> : <p className="footer-note">No additional payload.</p>}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function OverviewComposer(props: {
   state: AppState;
   selectedDetail: RunDetailData | null;
@@ -74,10 +131,15 @@ function OverviewComposer(props: {
   if (prompts.length > 0) {
     return (
       <div className="project-chat-shell">
+        <div className="project-chat-header">
+          <div>
+            <p className="eyebrow">Current ask</p>
+            <h2 className="project-chat-title">{props.selectedDetail?.summary.ticketSlug || props.selectedDetail?.summary.runId || "Selected run"}</h2>
+            <p className="project-chat-note">The selected run is waiting on input. Respond here to unblock it.</p>
+          </div>
+          {props.selectedDetail ? <span className={`badge ${statusBadgeClass(getRunDisplayStatus(props.selectedDetail.summary))}`}>{getRunDisplayStatus(props.selectedDetail.summary)}</span> : null}
+        </div>
         <div className="project-chat-body">
-          <p className="eyebrow">Current ask</p>
-          <h2 className="project-chat-title">{props.selectedDetail?.summary.ticketSlug || props.selectedDetail?.summary.runId || "Selected run"}</h2>
-          <p className="project-chat-note">The selected run is waiting on input. Respond here to unblock it.</p>
           <PromptInbox prompts={prompts} promptDrafts={props.state.promptDrafts} onDraftChange={props.onPromptDraftChange} onRespond={props.onRespondPrompt} />
         </div>
       </div>
@@ -90,17 +152,31 @@ function OverviewComposer(props: {
 
   return (
     <div className="project-chat-shell">
+      <div className="project-chat-header">
+        <div>
+          <p className="eyebrow">Selected run</p>
+          <h2 className="project-chat-title">{props.selectedDetail.summary.ticketSlug || props.selectedDetail.summary.runId}</h2>
+          <p className="subtle">Phase: {presentStageName(props.selectedDetail.summary.phase)} · Started {formatDate(props.selectedDetail.summary.createdAt)}</p>
+        </div>
+        <div className="project-chat-statuses">
+          <span className={`badge ${statusBadgeClass(getRunDisplayStatus(props.selectedDetail.summary))}`}>{getRunDisplayStatus(props.selectedDetail.summary)}</span>
+          <span className="badge mono">{props.selectedDetail.summary.branchName}</span>
+        </div>
+      </div>
       <div className="project-chat-body">
-        <p className="eyebrow">Current state</p>
-        <h2 className="project-chat-title">{props.selectedDetail.summary.ticketSlug || props.selectedDetail.summary.runId}</h2>
-        <p className="subtle">Phase: {props.selectedDetail.summary.phase || "unknown"} · Updated {formatDate(props.selectedDetail.summary.createdAt)}</p>
-        <p className="project-chat-note">
-          {props.selectedDetail.summary.needsUserInput
-            ? `This run is waiting for input before it can continue.`
-            : `No direct question is pending. Review the latest AG-UI story below or drill into details for artifacts and full telemetry.`}
-        </p>
-        <div className="project-inline-feed">
-          <AgUiFeed runId={props.selectedDetail.summary.runId} events={props.state.agUiEventsByRun[props.selectedDetail.summary.runId] || []} />
+        <p className="project-chat-note">{getRunStatusNote(props.selectedDetail.summary)}</p>
+        <div className="project-story-shell">
+          <div className="project-story-topline">
+            <div>
+              <p className="eyebrow">Story</p>
+              <h3 className="project-section-title">Latest run narrative</h3>
+            </div>
+            <div className="badge-row">
+              {props.selectedDetail.summary.finalReportAvailable ? <span className="badge">report ready</span> : null}
+              {props.selectedDetail.summary.needsUserInput ? <span className="badge waiting">awaiting input</span> : null}
+            </div>
+          </div>
+          <OverviewStory run={props.selectedDetail.summary} state={props.state} />
         </div>
       </div>
       <div className="project-chat-inputRow">
