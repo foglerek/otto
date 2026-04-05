@@ -3,6 +3,7 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_1 = `const state = {
   controlPlane: null,
   selectedRunId: null,
   detailCache: new Map(),
+  agUiEventsByRun: {},
   ticketDraft: "",
   ingestDraft: "",
   ingestSourceName: "browser-ingest.md",
@@ -17,6 +18,8 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_1 = `const state = {
 
 let liveEventSource = null;
 let liveStreamRunId = null;
+let agUiEventSource = null;
+let agUiRunId = null;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -97,6 +100,10 @@ function getPromptDraft(prompt) {
 function clearActionState() {
   state.actionMessage = "";
   state.actionError = "";
+}
+
+function getAgUiEvents(runId) {
+  return state.agUiEventsByRun[runId] || [];
 }
 
 function applyDashboardUpdate(dashboard) {
@@ -185,6 +192,18 @@ function renderJsonLines(title, items, formatter) {
   '</article>';
 }
 
+function renderAgUiLines(runId) {
+  const items = getAgUiEvents(runId);
+  const body = items.length > 0
+    ? '<pre>' + escapeHtml(items.map((event) => JSON.stringify(event, null, 2)).join('\\n\\n')) + '</pre>'
+    : '<p class="subtle">No AG-UI events captured yet for this run.</p>';
+  return '<article class="timeline-card">' +
+    '<p class="eyebrow">AG-UI</p>' +
+    '<h3>Run event feed</h3>' +
+    body +
+  '</article>';
+}
+
 function renderActionStatus() {
   if (state.actionError) {
     return '<div class="action-banner error">' + escapeHtml(state.actionError) + '</div>';
@@ -268,6 +287,7 @@ function renderDetail(detail) {
   const execCard = renderJsonLines('Exec events', detail.recentExecs, (entry) => {
     return '[' + entry.at + '] ' + entry.label + ' exit=' + entry.exitCode + ' timedOut=' + entry.timedOut + ' durationMs=' + entry.durationMs;
   });
+  const agUiCard = renderAgUiLines(run.runId);
   const deleteLabel = state.isDeletingRun ? 'Deleting...' : 'Delete run';
   const canResume = run.processStatus !== 'active';
   const canMergeBack = run.processStatus !== 'active' && run.finalReportAvailable;
@@ -321,7 +341,7 @@ function renderDetail(detail) {
     '</section>' +
     '<section class="grid-two">' +
       '<div class="artifact-grid">' + renderArtifacts(detail.artifacts) + '</div>' +
-      '<div class="timeline-grid">' + eventsCard + execCard + '</div>' +
+      '<div class="timeline-grid">' + agUiCard + eventsCard + execCard + '</div>' +
     '</section>' +
   '</div>';
 }

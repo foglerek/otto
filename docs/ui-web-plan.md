@@ -206,6 +206,7 @@ Current progress:
 - browser still keeps a long-interval fallback refresh, but live updates now come primarily from the server stream instead of tight polling
 - per-run AG-UI event streams are now a first-class direction for agent/session events, with Otto emitting `ag-ui-events.jsonl` in each run folder and the server exposing `/api/runs/:runId/ag-ui`
 - current AG-UI mapping uses core lifecycle/exec/custom Otto events; raw runner-native JSON event passthrough is the next likely enhancement where available
+- the current web UI now subscribes to the selected run's AG-UI stream and renders a basic event feed alongside artifact/detail views
 
 This gives the browser a real-time feel without changing Otto's storage model.
 

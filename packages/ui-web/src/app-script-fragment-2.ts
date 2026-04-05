@@ -95,6 +95,41 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_2 = `  const refresh = document.getEleme
   }
 }
 
+function connectAgUiStream() {
+  const nextRunId = state.selectedRunId || null;
+  if (!nextRunId) {
+    if (agUiEventSource) {
+      agUiEventSource.close();
+      agUiEventSource = null;
+      agUiRunId = null;
+    }
+    return;
+  }
+
+  if (agUiEventSource && agUiRunId === nextRunId) {
+    return;
+  }
+
+  if (agUiEventSource) {
+    agUiEventSource.close();
+  }
+
+  agUiEventSource = new EventSource('/api/runs/' + encodeURIComponent(nextRunId) + '/ag-ui');
+  agUiRunId = nextRunId;
+  state.agUiEventsByRun[nextRunId] = state.agUiEventsByRun[nextRunId] || [];
+
+  agUiEventSource.onmessage = (event) => {
+    const parsed = JSON.parse(event.data);
+    const current = state.agUiEventsByRun[nextRunId] || [];
+    state.agUiEventsByRun[nextRunId] = [...current, parsed].slice(-80);
+    renderApp();
+  };
+
+  agUiEventSource.onerror = () => {
+    // EventSource will retry automatically; keep the current feed visible.
+  };
+}
+
 function connectLiveStream() {
   const nextRunId = state.selectedRunId || '';
   if (liveEventSource && liveStreamRunId === nextRunId) {
@@ -154,11 +189,13 @@ async function loadControlPlane() {
 
 async function loadSelectedRun() {
   if (!state.selectedRunId) {
+    connectAgUiStream();
     renderApp();
     return;
   }
   const detail = await fetchJson('/api/runs/' + encodeURIComponent(state.selectedRunId));
   state.detailCache.set(state.selectedRunId, detail);
+  connectAgUiStream();
   renderApp();
 }
 
@@ -256,6 +293,7 @@ async function startRun(ticketId) {
     state.actionMessage = 'Started run job for ' + ticketId + '.';
     state.selectedRunId = ticketId;
     connectLiveStream();
+    connectAgUiStream();
     await refreshAll();
   } catch (error) {
     state.actionError = error.message || String(error);
@@ -276,6 +314,7 @@ async function resumeRun(runId) {
     state.actionMessage = 'Started resume job for ' + runId + '.';
     state.selectedRunId = runId;
     connectLiveStream();
+    connectAgUiStream();
     await refreshAll();
   } catch (error) {
     state.actionError = error.message || String(error);
@@ -296,6 +335,7 @@ async function mergeBackRun(runId) {
     state.actionMessage = 'Started merge-back job for ' + runId + '.';
     state.selectedRunId = runId;
     connectLiveStream();
+    connectAgUiStream();
     await refreshAll();
   } catch (error) {
     state.actionError = error.message || String(error);
