@@ -102,17 +102,6 @@ function clearActionState() {
   state.actionError = "";
 }
 
-function getAgUiEvents(runId) {
-  return state.agUiEventsByRun[runId] || [];
-}
-
-function truncateText(value, maxChars) {
-  if (!value || value.length <= maxChars) {
-    return value || '';
-  }
-  return value.slice(0, maxChars) + '\n...[truncated ' + (value.length - maxChars) + ' chars]';
-}
-
 function applyDashboardUpdate(dashboard) {
   state.dashboard = dashboard;
   ensureSelectedRun();
@@ -195,47 +184,6 @@ function renderJsonLines(title, items, formatter) {
   return '<article class="timeline-card">' +
     '<p class="eyebrow">Timeline</p>' +
     '<h3>' + escapeHtml(title) + '</h3>' +
-    body +
-  '</article>';
-}
-
-function renderAgUiLines(runId) {
-  const items = getAgUiEvents(runId);
-  const body = items.length > 0
-    ? '<div class="prompt-list">' + items.slice().reverse().map((event) => {
-        let summary = '';
-        if (event.type === 'RUN_STARTED') {
-          summary = 'Run started for ' + escapeHtml(event.runId || runId) + '.';
-        } else if (event.type === 'RUN_FINISHED') {
-          summary = truncateText(JSON.stringify(event.result || {}, null, 2), 1200);
-        } else if (event.type === 'RUN_ERROR') {
-          summary = escapeHtml(event.message || 'Run error');
-        } else if (event.type === 'TOOL_CALL_START') {
-          summary = 'Tool call started: ' + escapeHtml(event.toolCallName || event.toolCallId || 'unknown');
-        } else if (event.type === 'TOOL_CALL_ARGS') {
-          summary = truncateText(String(event.delta || ''), 1200);
-        } else if (event.type === 'TOOL_CALL_RESULT') {
-          summary = truncateText(String(event.content || ''), 1200);
-        } else if (event.type === 'RAW') {
-          summary = truncateText(JSON.stringify(event.event || event.rawEvent || {}, null, 2), 1200);
-        } else if (event.type === 'CUSTOM') {
-          summary = truncateText(JSON.stringify(event.value || {}, null, 2), 1200);
-        } else {
-          summary = truncateText(JSON.stringify(event, null, 2), 1200);
-        }
-
-        return '<div class="prompt-card">' +
-          '<div class="detail-topline">' +
-            '<div><p class="eyebrow">' + escapeHtml(event.type || 'EVENT') + '</p><p class="subtle">' + escapeHtml(event.name || event.source || '') + '</p></div>' +
-            '<span class="badge mono">' + escapeHtml(event.timestamp ? formatDate(event.timestamp) : '-') + '</span>' +
-          '</div>' +
-          '<pre class="prompt-message">' + escapeHtml(summary) + '</pre>' +
-        '</div>';
-      }).join('') + '</div>'
-    : '<p class="subtle">No AG-UI events captured yet for this run.</p>';
-  return '<article class="timeline-card">' +
-    '<p class="eyebrow">AG-UI</p>' +
-    '<h3>Run event feed</h3>' +
     body +
   '</article>';
 }

@@ -406,6 +406,26 @@ textarea {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.ag-ui-card-message {
+  border-color: rgba(88, 166, 255, 0.18);
+}
+
+.ag-ui-card-tool {
+  border-color: rgba(89, 197, 138, 0.2);
+}
+
+.ag-ui-card-reasoning {
+  border-color: rgba(217, 164, 65, 0.22);
+}
+
+.ag-ui-card-control {
+  border-color: rgba(202, 214, 229, 0.16);
+}
+
+.ag-ui-card-error {
+  border-color: rgba(242, 109, 120, 0.24);
+}
+
 .ticket-row {
   display: flex;
   align-items: center;
