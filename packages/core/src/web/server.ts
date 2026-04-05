@@ -249,7 +249,9 @@ async function handleDynamicReadRoutes(args: {
     await streamAgUiRunEvents({
       req: args.req,
       res: args.res,
+      runId,
       runDir: state.runDir,
+      controlPlane: args.controlPlane,
     });
     return true;
   }

@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import type http from "node:http";
 
+import { EventType } from "@ag-ui/core";
+
 import { getAgUiEventsPath, type OttoAgUiEvent } from "../ag-ui.js";
+import type { OttoWebControlPlane, OttoWebControlPlaneSnapshot } from "./control-plane.js";
 
 async function ensureFileOffset(filePath: string): Promise<number> {
   try {
@@ -33,10 +36,28 @@ async function replayFile(args: {
   }
 }
 
+function buildControlPlaneEvent(args: {
+  runId: string;
+  snapshot: OttoWebControlPlaneSnapshot;
+}): OttoAgUiEvent {
+  return {
+    type: EventType.CUSTOM,
+    name: "otto.control_plane",
+    value: {
+      runId: args.runId,
+      jobs: args.snapshot.jobs.filter((job) => job.runId === args.runId),
+      prompts: args.snapshot.prompts.filter((prompt) => prompt.runId === args.runId),
+    },
+    timestamp: Date.now(),
+  };
+}
+
 export async function streamAgUiRunEvents(args: {
   req: http.IncomingMessage;
   res: http.ServerResponse;
   runDir: string;
+  runId: string;
+  controlPlane: OttoWebControlPlane;
 }): Promise<void> {
   args.res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -47,6 +68,22 @@ export async function streamAgUiRunEvents(args: {
 
   const filePath = getAgUiEventsPath(args.runDir);
   let offset = await replayFile({ filePath, res: args.res });
+  let lastControlPlanePayload: string | null = null;
+
+  const emitControlPlaneSnapshot = (snapshot: OttoWebControlPlaneSnapshot) => {
+    const event = buildControlPlaneEvent({ runId: args.runId, snapshot });
+    const encoded = JSON.stringify(event.value);
+    if (encoded === lastControlPlanePayload) {
+      return;
+    }
+    lastControlPlanePayload = encoded;
+    writeEvent(args.res, event);
+  };
+
+  emitControlPlaneSnapshot(args.controlPlane.getSnapshot());
+  const unsubscribe = args.controlPlane.subscribe(async (snapshot) => {
+    emitControlPlaneSnapshot(snapshot);
+  });
 
   const timer = setInterval(async () => {
     try {
@@ -76,5 +113,6 @@ export async function streamAgUiRunEvents(args: {
 
   args.req.on("close", () => {
     clearInterval(timer);
+    unsubscribe();
   });
 }
