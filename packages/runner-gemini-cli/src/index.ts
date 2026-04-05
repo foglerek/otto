@@ -1,5 +1,6 @@
 import type {
   OttoRole,
+  OttoRunnerLog,
   OttoRunner,
   OttoRunnerResult,
   OttoRunnerRunOptions,
@@ -36,6 +37,7 @@ type ParsedOutput = {
   finalText?: string;
   finalError?: string;
   lastText?: string;
+  logs: OttoRunnerLog[];
 };
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -210,8 +212,8 @@ function applyJsonRecord(parsed: ParsedOutput, obj: JsonRecord): void {
   }
 }
 
-function parseStreamJson(stdout: string): ParsedOutput {
-  const parsed: ParsedOutput = {};
+function parseStreamJson(stdout: string, runnerId: string): ParsedOutput {
+  const parsed: ParsedOutput = { logs: [] };
 
   for (const line of stdout.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -222,13 +224,60 @@ function parseStreamJson(stdout: string): ParsedOutput {
     const obj = parseJsonLine(trimmed);
     if (!obj) {
       parsed.lastText = trimmed;
+      parsed.logs.push({
+        runnerId,
+        channel: "raw",
+        level: "debug",
+        message: trimmed,
+        raw: trimmed,
+      });
       continue;
     }
+
+    parsed.logs.push({
+      runnerId,
+      channel: "raw",
+      level: "debug",
+      message: trimmed,
+      raw: obj,
+    });
 
     applyJsonRecord(parsed, obj);
   }
 
   return parsed;
+}
+
+async function emitAssistantText(args: {
+  onEvent: OttoRunnerRunOptions["onEvent"];
+  messageId: string;
+  text: string;
+  rawEvent?: unknown;
+}): Promise<void> {
+  if (!args.onEvent || !args.text.trim()) {
+    return;
+  }
+  const timestamp = Date.now();
+  await args.onEvent({
+    type: "TEXT_MESSAGE_START",
+    messageId: args.messageId,
+    role: "assistant",
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TEXT_MESSAGE_CONTENT",
+    messageId: args.messageId,
+    delta: args.text,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
+  await args.onEvent({
+    type: "TEXT_MESSAGE_END",
+    messageId: args.messageId,
+    timestamp,
+    rawEvent: args.rawEvent,
+  });
 }
 
 function buildArgs(args: {
@@ -264,15 +313,38 @@ class GeminiCliRunner implements OttoRunner {
     const binary = this.options.binary ?? DEFAULT_BINARY;
     const cmd = buildArgs({ binary, run: options, config: cfg });
 
+    let messageCount = 0;
+    let lastLiveMessage = "";
     const execResult = await options.exec.run(cmd, {
       cwd: options.cwd,
       timeoutMs: options.timeoutMs ?? 10 * 60_000,
       label: `gemini:${options.phaseName}:${options.role}`,
       env: cfg.env,
       stdin: options.prompt,
+      onStdoutLine: async (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const obj = parseJsonLine(trimmed);
+        if (!obj) return;
+        const textCandidate = extractTextCandidate(obj);
+        if (!textCandidate || textCandidate === lastLiveMessage) {
+          return;
+        }
+        lastLiveMessage = textCandidate;
+        messageCount += 1;
+        await emitAssistantText({
+          onEvent: options.onEvent,
+          messageId: `${this.id}-message-${messageCount}`,
+          text: textCandidate,
+          rawEvent: obj,
+        });
+      },
     });
 
-    const parsed = parseStreamJson(execResult.stdout);
+    const parsed = parseStreamJson(execResult.stdout, this.id);
+    for (const entry of parsed.logs) {
+      await options.onLog?.(entry);
+    }
     const outputText = parsed.finalText ?? parsed.lastText ?? execResult.stdout.trim();
     const sessionId = parsed.sessionId ?? options.sessionId;
 
