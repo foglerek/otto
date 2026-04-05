@@ -1,5 +1,18 @@
 import type { AgUiEvent, AppState, ControlPlaneJob, ControlPlanePrompt, DashboardData } from "./types.js";
 
+const PHASE_ORDER = [
+  "ticket-ingestion",
+  "decision-cards",
+  "plan-feedback",
+  "task-splitting",
+  "task-feedback",
+  "execution",
+  "user-feedback",
+  "integration",
+  "finalize",
+  "cleanup",
+] as const;
+
 export function formatDate(value: string | number | undefined): string {
   if (!value) return "-";
   const date = new Date(value);
@@ -24,6 +37,7 @@ export function ensureSelectedRun(dashboard: DashboardData | null, selectedRunId
 
 export function statusBadgeClass(status: string): string {
   if (status === "active") return "active";
+  if (status === "paused") return "waiting";
   if (status === "stale" || status === "failed") return "stale";
   if (status === "waiting") return "waiting";
   return "done";
@@ -42,6 +56,25 @@ export function truncateText(value: string | undefined, maxChars: number): strin
     return value ?? "";
   }
   return `${value.slice(0, maxChars)}\n...[truncated ${value.length - maxChars} chars]`;
+}
+
+export function compactRunStages(phase: string | null): {
+  previous: string | null;
+  current: string;
+  next: string | null;
+} {
+  const normalized = phase && PHASE_ORDER.includes(phase as (typeof PHASE_ORDER)[number]) ? phase : "execution";
+  const index = PHASE_ORDER.indexOf(normalized as (typeof PHASE_ORDER)[number]);
+  return {
+    previous: index > 0 ? PHASE_ORDER[index - 1] : null,
+    current: PHASE_ORDER[index],
+    next: index < PHASE_ORDER.length - 1 ? PHASE_ORDER[index + 1] : null,
+  };
+}
+
+export function presentStageName(value: string | null): string {
+  if (!value) return "-";
+  return value.replace(/-/g, " ");
 }
 
 export function classifyAgUiEvent(event: AgUiEvent): string {

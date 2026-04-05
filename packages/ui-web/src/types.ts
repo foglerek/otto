@@ -122,6 +122,7 @@ export interface AppState {
   dashboard: DashboardData | null;
   controlPlane: ControlPlaneData | null;
   selectedRunId: string | null;
+  viewMode: "overview" | "details";
   detailCache: Record<string, RunDetailData>;
   agUiEventsByRun: Record<string, AgUiEvent[]>;
   ticketDraft: string;

@@ -2,6 +2,7 @@ import React from "react";
 
 import { summarizeAgUiEvent } from "./ag-ui-summary.js";
 import { CollapsibleCard } from "./disclosure.js";
+import { ProjectOverview, type OverviewPanel } from "./project-shell.js";
 import {
   classifyAgUiEvent,
   formatDate,
@@ -453,6 +454,9 @@ function RunDetail(props: {
 export function AppLayout(props: {
   state: AppState;
   selectedDetail: RunDetailData | null;
+  onSetViewMode: (viewMode: "overview" | "details") => void;
+  overviewPanel: OverviewPanel;
+  onSetOverviewPanel: (panel: OverviewPanel) => void;
   onSelectRun: (runId: string) => void;
   onRefresh: () => void;
   onCreateTicket: () => void;
@@ -471,23 +475,50 @@ export function AppLayout(props: {
 }): React.JSX.Element {
   return (
     <div className="app-shell">
-      <Sidebar
-        state={props.state}
-        onRefresh={props.onRefresh}
-        onCreateTicket={props.onCreateTicket}
-        onIngestTicket={props.onIngestTicket}
-        onTicketDraftChange={props.onTicketDraftChange}
-        onIngestDraftChange={props.onIngestDraftChange}
-        onIngestSourceNameChange={props.onIngestSourceNameChange}
-        onIngestFile={props.onIngestFile}
-        onStartRun={props.onStartRun}
-        onSelectRun={props.onSelectRun}
-      />
+      {props.state.viewMode === "details" ? (
+        <Sidebar
+          state={props.state}
+          onRefresh={props.onRefresh}
+          onCreateTicket={props.onCreateTicket}
+          onIngestTicket={props.onIngestTicket}
+          onTicketDraftChange={props.onTicketDraftChange}
+          onIngestDraftChange={props.onIngestDraftChange}
+          onIngestSourceNameChange={props.onIngestSourceNameChange}
+          onIngestFile={props.onIngestFile}
+          onStartRun={props.onStartRun}
+          onSelectRun={props.onSelectRun}
+        />
+      ) : null}
       <main className="main">
+        <div className="view-toggle-bar">
+          <div className="prompt-actions">
+            <button className={`button ${props.state.viewMode === "overview" ? "button-primary" : "button-secondary"}`} onClick={() => props.onSetViewMode("overview")}>Overview</button>
+            <button className={`button ${props.state.viewMode === "details" ? "button-primary" : "button-secondary"}`} onClick={() => props.onSetViewMode("details")}>Details</button>
+          </div>
+        </div>
         <PromptInbox prompts={props.state.controlPlane?.prompts || []} promptDrafts={props.state.promptDrafts} onDraftChange={props.onPromptDraftChange} onRespond={props.onRespondPrompt} />
         {props.state.actionError ? <div className="action-banner error">{props.state.actionError}</div> : null}
         {props.state.actionMessage ? <div className="action-banner success">{props.state.actionMessage}</div> : null}
-        <RunDetail state={props.state} detail={props.selectedDetail} onResumeRun={props.onResumeRun} onMergeBackRun={props.onMergeBackRun} onDeleteRun={props.onDeleteRun} onToggleDone={props.onToggleDone} />
+        {props.state.viewMode === "overview" ? (
+          <ProjectOverview
+            state={props.state}
+            selectedDetail={props.selectedDetail}
+            overviewPanel={props.overviewPanel}
+            onSetOverviewPanel={props.onSetOverviewPanel}
+            onCreateTicket={props.onCreateTicket}
+            onIngestTicket={props.onIngestTicket}
+            onTicketDraftChange={props.onTicketDraftChange}
+            onIngestDraftChange={props.onIngestDraftChange}
+            onIngestSourceNameChange={props.onIngestSourceNameChange}
+            onIngestFile={props.onIngestFile}
+            onStartRun={props.onStartRun}
+            onSelectRun={props.onSelectRun}
+            onPromptDraftChange={props.onPromptDraftChange}
+            onRespondPrompt={props.onRespondPrompt}
+          />
+        ) : (
+          <RunDetail state={props.state} detail={props.selectedDetail} onResumeRun={props.onResumeRun} onMergeBackRun={props.onMergeBackRun} onDeleteRun={props.onDeleteRun} onToggleDone={props.onToggleDone} />
+        )}
       </main>
     </div>
   );

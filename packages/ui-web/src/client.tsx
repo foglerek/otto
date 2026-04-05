@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 
 import { AppLayout, ErrorState, ShellLoading } from "./components.js";
+import type { OverviewPanel } from "./project-shell.js";
 import type { ControlPlaneData, DashboardData } from "./types.js";
 import { useAppState } from "./use-app-state.js";
 
@@ -31,6 +32,7 @@ async function postJson<T>(url: string, body?: unknown): Promise<T> {
 
 function App(): React.JSX.Element {
   const app = useAppState();
+  const [overviewPanel, setOverviewPanel] = React.useState<OverviewPanel>(null);
 
   async function refresh() {
     try {
@@ -140,6 +142,9 @@ function App(): React.JSX.Element {
     <AppLayout
       state={app.state}
       selectedDetail={app.selectedDetail}
+      onSetViewMode={app.setViewMode}
+      overviewPanel={overviewPanel}
+      onSetOverviewPanel={setOverviewPanel}
       onSelectRun={app.setSelectedRunId}
       onRefresh={() => void refresh()}
       onCreateTicket={() => void createTicket()}

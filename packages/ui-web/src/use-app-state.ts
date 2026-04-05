@@ -7,6 +7,7 @@ const initialState: AppState = {
   dashboard: null,
   controlPlane: null,
   selectedRunId: null,
+  viewMode: "overview",
   detailCache: {},
   agUiEventsByRun: {},
   ticketDraft: "",
@@ -134,6 +135,7 @@ export function useAppState(): {
   fatalError: string | null;
   selectedDetail: RunDetailData | null;
   setSelectedRunId: (runId: string) => void;
+  setViewMode: (viewMode: "overview" | "details") => void;
   setTicketDraft: (value: string) => void;
   setIngestDraft: (value: string) => void;
   setIngestSourceName: (value: string) => void;
@@ -154,6 +156,7 @@ export function useAppState(): {
     fatalError,
     selectedDetail: state.selectedRunId ? state.detailCache[state.selectedRunId] ?? null : null,
     setSelectedRunId: (runId) => setState((current) => ({ ...current, selectedRunId: runId })),
+    setViewMode: (viewMode: "overview" | "details") => setState((current) => ({ ...current, viewMode })),
     setTicketDraft: (value) => setState((current) => ({ ...current, ticketDraft: value })),
     setIngestDraft: (value) => setState((current) => ({ ...current, ingestDraft: value })),
     setIngestSourceName: (value) => setState((current) => ({ ...current, ingestSourceName: value })),

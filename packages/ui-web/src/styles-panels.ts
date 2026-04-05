@@ -277,6 +277,175 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
   overflow-wrap: anywhere;
 }
 
+.project-shell {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.project-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.project-sidebar,
+.project-main,
+.project-chat-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.project-run-group {
+  display: grid;
+  gap: 10px;
+}
+
+.project-run-list {
+  display: grid;
+  gap: 12px;
+}
+
+.overview-run-card {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(19, 29, 42, 0.94), rgba(15, 22, 32, 0.98));
+  box-shadow: var(--shadow);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.overview-run-card.active {
+  border-color: rgba(88, 166, 255, 0.28);
+  background: linear-gradient(180deg, rgba(88, 166, 255, 0.16), rgba(19, 29, 42, 0.98));
+}
+
+.overview-run-topline {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.stage-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 12px;
+}
+
+.stage-strip-node {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.stage-strip-node::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: calc(-50% + 12px);
+  width: calc(100% - 24px);
+  height: 2px;
+  background: rgba(202, 214, 229, 0.28);
+}
+
+.stage-strip-node:first-child::before {
+  display: none;
+}
+
+.stage-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 2px solid rgba(202, 214, 229, 0.7);
+  background: transparent;
+  z-index: 1;
+}
+
+.stage-strip-node.done .stage-dot {
+  background: rgba(89, 197, 138, 0.9);
+  border-color: rgba(89, 197, 138, 1);
+}
+
+.stage-strip-node.active .stage-dot {
+  background: rgba(88, 166, 255, 0.95);
+  border-color: rgba(88, 166, 255, 1);
+}
+
+.stage-strip-node.waiting .stage-dot {
+  background: rgba(217, 164, 65, 0.95);
+  border-color: rgba(217, 164, 65, 1);
+}
+
+.stage-strip-node.stale .stage-dot {
+  background: rgba(242, 109, 120, 0.92);
+  border-color: rgba(242, 109, 120, 1);
+}
+
+.stage-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+  text-align: center;
+}
+
+.project-chat-shell {
+  min-height: 68vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(19, 29, 42, 0.94), rgba(15, 22, 32, 0.98));
+  box-shadow: var(--shadow);
+  padding: 24px;
+  align-content: space-between;
+}
+
+.project-chat-body {
+  display: grid;
+  gap: 16px;
+}
+
+.project-chat-title {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.project-chat-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.project-inline-feed .timeline-card {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.project-chat-inputRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.project-chat-inputPlaceholder {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(202, 214, 229, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+}
+
 .prompt-panel {
   border-color: rgba(88, 166, 255, 0.2);
 }
@@ -307,6 +476,10 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
   }
 
   .grid-two {
+    grid-template-columns: 1fr;
+  }
+
+  .project-shell {
     grid-template-columns: 1fr;
   }
 }

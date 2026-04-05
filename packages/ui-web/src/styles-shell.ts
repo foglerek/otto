@@ -102,6 +102,12 @@ textarea {
   gap: 24px;
 }
 
+.view-toggle-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .header-block,
 .panel,
 .summary-grid article,
