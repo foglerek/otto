@@ -107,6 +107,7 @@ export interface OttoSubagentStrategyConfig {
 export interface OttoWorktreeConfig {
   baseBranch: string;
   worktreesDir?: string;
+  deleteBranchOnCleanup?: boolean;
   branchNamer(args: { ticket: OttoTicketMeta }): string;
   afterCreate(ctx: OttoWorktreeHookContext): Promise<void>;
   beforeCleanup?(ctx: OttoWorktreeHookContext): Promise<void>;

@@ -8,6 +8,7 @@ import { buildInitialRunState } from "../../runs/state.js";
 import { runOttoRun } from "../../run.js";
 import { createNodeExec } from "../../exec.js";
 import { createTrackedPromptAdapter } from "../../prompt-state.js";
+import { finalizeCompletedRun, shouldFinalizeCompletedRun } from "../../completion.js";
 import { output, fail, failNoRunner } from "../output.js";
 import {
   reportExecEventToTerminal,
@@ -154,6 +155,45 @@ async function getTrackedPromptForRun(args: {
   });
 }
 
+function makeHookLogger() {
+  return {
+    info: (msg: string) => {
+      process.stdout.write(`[info] ${msg}\n`);
+    },
+    warn: (msg: string) => {
+      process.stderr.write(`[warn] ${msg}\n`);
+    },
+    error: (msg: string) => {
+      process.stderr.write(`[error] ${msg}\n`);
+    },
+  };
+}
+
+async function runAfterCreateHook(args: {
+  config: Awaited<ReturnType<typeof loadConfigFromCwd>>["config"];
+  mainRepoPath: string;
+  worktreePath: string;
+  branchName: string;
+  baseBranch: string;
+  exec: ReturnType<typeof createNodeExec>;
+  envVars: Record<string, string>;
+  testEnvVars: Record<string, string>;
+}): Promise<void> {
+  await args.config.worktree.afterCreate({
+    worktree: {
+      mainRepoPath: args.mainRepoPath,
+      worktreePath: args.worktreePath,
+      branchName: args.branchName,
+      baseBranch: args.baseBranch,
+    },
+    exec: args.exec,
+    env: { set: (key, value) => { args.envVars[key] = value; } },
+    testEnv: { set: (key, value) => { args.testEnvVars[key] = value; } },
+    services: {},
+    logger: makeHookLogger(),
+  });
+}
+
 export async function handleStartCommand(args: string[]): Promise<void> {
   const ticketId = (args[0] ?? "").trim();
   if (!ticketId || args.length !== 1) {
@@ -207,36 +247,15 @@ export async function handleStartCommand(args: string[]): Promise<void> {
   const worktreePath = created.worktreePath;
 
   try {
-    await config.worktree.afterCreate({
-      worktree: {
-        mainRepoPath,
-        worktreePath,
-        branchName: resolvedBranchName,
-        baseBranch,
-      },
+    await runAfterCreateHook({
+      config,
+      mainRepoPath,
+      worktreePath,
+      branchName: resolvedBranchName,
+      baseBranch,
       exec,
-      env: {
-        set: (key, value) => {
-          envVars[key] = value;
-        },
-      },
-      testEnv: {
-        set: (key, value) => {
-          testEnvVars[key] = value;
-        },
-      },
-      services: {},
-      logger: {
-        info: (msg) => {
-          process.stdout.write(`[info] ${msg}\n`);
-        },
-        warn: (msg) => {
-          process.stderr.write(`[warn] ${msg}\n`);
-        },
-        error: (msg) => {
-          process.stderr.write(`[error] ${msg}\n`);
-        },
-      },
+      envVars,
+      testEnvVars,
     });
   } catch (error) {
     await cleanupFailedWorktreeStart({
@@ -290,6 +309,12 @@ export async function handleStartCommand(args: string[]): Promise<void> {
       result.stoppedAtPhase === "cleanup"
         ? await maybeRunPostCleanupMergeBack({ state, config, prompt })
         : null;
+    if (shouldFinalizeCompletedRun({
+      stoppedAtPhase: result.stoppedAtPhase,
+      mergeBack,
+    })) {
+      await finalizeCompletedRun({ state, config });
+    }
     output(
       {
         action: "start",

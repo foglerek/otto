@@ -5,6 +5,7 @@ import { listRuns } from "../../runs/listing.js";
 import { loadOttoState } from "../../state.js";
 import { runOttoRun } from "../../run.js";
 import { createTrackedPromptAdapter } from "../../prompt-state.js";
+import { finalizeCompletedRun, shouldFinalizeCompletedRun } from "../../completion.js";
 import { isRunLockStale, readRunLockFile } from "../../locks/run-lock.js";
 import { output, fail, failNoRunner } from "../output.js";
 import {
@@ -98,6 +99,12 @@ export async function handleResumeCommand(args: string[]): Promise<void> {
       result.stoppedAtPhase === "cleanup"
         ? await maybeRunPostCleanupMergeBack({ state, config, prompt })
         : null;
+    if (shouldFinalizeCompletedRun({
+      stoppedAtPhase: result.stoppedAtPhase,
+      mergeBack,
+    })) {
+      await finalizeCompletedRun({ state, config });
+    }
     output(
       {
         action: "resume",

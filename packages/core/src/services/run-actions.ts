@@ -22,6 +22,7 @@ import {
   cleanupFailedWorktreeStart,
 } from "../cli/commands/start.js";
 import { isRunLockStale, readRunLockFile } from "../locks/run-lock.js";
+import { finalizeCompletedRun, shouldFinalizeCompletedRun } from "../completion.js";
 
 import { resolveWebRepoContext } from "./web.js";
 
@@ -93,6 +94,13 @@ async function runManagedWorkflow(args: {
             prompt: trackedPrompt,
           })
         : null;
+
+    if (shouldFinalizeCompletedRun({
+      stoppedAtPhase: result.stoppedAtPhase,
+      mergeBack,
+    })) {
+      await finalizeCompletedRun({ state: args.state, config: args.config });
+    }
 
     return {
       runId: args.state.runId,
