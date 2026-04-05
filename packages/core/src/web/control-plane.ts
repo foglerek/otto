@@ -31,7 +31,7 @@ export interface OttoWebJobSnapshot {
 
 export interface OttoWebControlPlaneSnapshot {
   jobs: OttoWebJobSnapshot[];
-  pendingPrompt: OttoWebPromptSnapshot | null;
+  prompts: OttoWebPromptSnapshot[];
 }
 
 interface OttoWebControlPlaneFileState extends OttoWebControlPlaneSnapshot {
@@ -51,7 +51,7 @@ export class OttoWebControlPlane {
   private readonly jobs = new Map<string, OttoWebJobRecord>();
   private nextJobId = 1;
   private nextPromptId = 1;
-  private pendingPrompt: PendingPromptRecord | null = null;
+  private readonly pendingPrompts = new Map<string, PendingPromptRecord>();
   private readonly persistenceFilePath: string | null;
   private persistSequence = 1;
 
@@ -81,7 +81,7 @@ export class OttoWebControlPlane {
         this.jobs.set(normalized.id, normalized);
       }
 
-      this.pendingPrompt = null;
+      this.pendingPrompts.clear();
       await this.persistSnapshot();
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
@@ -94,13 +94,15 @@ export class OttoWebControlPlane {
   getSnapshot(): OttoWebControlPlaneSnapshot {
     return {
       jobs: [...this.jobs.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
-      pendingPrompt: this.pendingPrompt?.snapshot ?? null,
+      prompts: [...this.pendingPrompts.values()]
+        .map((entry) => entry.snapshot)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     };
   }
 
-  hasActiveInteractiveJob(): boolean {
+  hasActiveJobForRun(runId: string): boolean {
     return [...this.jobs.values()].some(
-      (job) => job.status === "running" || job.status === "waiting",
+      (job) => job.runId === runId && (job.status === "running" || job.status === "waiting"),
     );
   }
 
@@ -150,9 +152,9 @@ export class OttoWebControlPlane {
     runId: string;
     run: (job: OttoWebJobSnapshot) => Promise<TResult>;
   }): Promise<OttoWebJobSnapshot> {
-    if (this.hasActiveInteractiveJob()) {
+    if (this.hasActiveJobForRun(args.runId)) {
       throw new Error(
-        "An Otto web workflow is already running. Wait for it to finish or answer the pending prompt before starting another one.",
+        `An Otto web workflow is already active for ${args.runId}. Wait for it to finish or answer its pending prompt before starting another one.`,
       );
     }
 
@@ -178,9 +180,12 @@ export class OttoWebControlPlane {
         job.error = error instanceof Error ? error.message : String(error);
         job.finishedAt = new Date().toISOString();
       } finally {
-        if (this.pendingPrompt?.snapshot.jobId === job.id) {
-          this.pendingPrompt.reject(new Error("Prompt cancelled because the job finished unexpectedly."));
-          this.pendingPrompt = null;
+        const promptsForJob = [...this.pendingPrompts.values()].filter(
+          (entry) => entry.snapshot.jobId === job.id,
+        );
+        for (const entry of promptsForJob) {
+          entry.reject(new Error("Prompt cancelled because the job finished unexpectedly."));
+          this.pendingPrompts.delete(entry.snapshot.id);
         }
         await this.persistSnapshot();
       }
@@ -190,15 +195,18 @@ export class OttoWebControlPlane {
   }
 
   async respondToPrompt(args: { promptId: string; value: unknown }): Promise<void> {
-    if (!this.pendingPrompt || this.pendingPrompt.snapshot.id !== args.promptId) {
+    const pending = this.pendingPrompts.get(args.promptId);
+    if (!pending) {
       throw new Error(`Prompt not found: ${args.promptId}`);
     }
 
-    const pending = this.pendingPrompt;
-    this.pendingPrompt = null;
+    this.pendingPrompts.delete(args.promptId);
 
     const job = this.jobs.get(pending.snapshot.jobId);
-    if (job && job.status === "waiting") {
+    const stillWaiting = [...this.pendingPrompts.values()].some(
+      (entry) => entry.snapshot.jobId === pending.snapshot.jobId,
+    );
+    if (job && job.status === "waiting" && !stillWaiting) {
       job.status = "running";
     }
 
@@ -214,13 +222,15 @@ export class OttoWebControlPlane {
     choices?: string[];
     defaultValue?: string | boolean;
   }): Promise<unknown> {
-    if (this.pendingPrompt) {
-      throw new Error("Only one pending Otto web prompt is supported at a time.");
-    }
-
     const job = this.jobs.get(args.jobId);
     if (!job) {
       throw new Error(`Prompt requested for unknown job: ${args.jobId}`);
+    }
+    const alreadyWaitingForJob = [...this.pendingPrompts.values()].some(
+      (entry) => entry.snapshot.jobId === args.jobId,
+    );
+    if (alreadyWaitingForJob) {
+      throw new Error(`Job ${args.jobId} already has a pending prompt.`);
     }
     job.status = "waiting";
 
@@ -243,11 +253,11 @@ export class OttoWebControlPlane {
       rejectPending = reject;
     });
 
-    this.pendingPrompt = {
+    this.pendingPrompts.set(snapshot.id, {
       snapshot,
       resolve: resolvePending,
       reject: rejectPending,
-    };
+    });
     await this.persistSnapshot();
 
     return await promise;

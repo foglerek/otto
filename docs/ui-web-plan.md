@@ -295,6 +295,7 @@ Current progress:
 - on server restart, incomplete web jobs are surfaced as failed instead of silently disappearing
 - a first control-plane-state step is now in place: tracked prompt adapters toggle `workflow.needsUserInput` in persisted run state during prompt waits
 - deeper explicit pending-action refactors are now optional, not required for the current UX model
+- the server now supports concurrent web-managed Otto jobs across different runs and routes prompts by `promptId` / `runId` instead of enforcing a single interactive job for the whole server session
 
 Exit criteria:
 
@@ -348,12 +349,13 @@ That delivers immediate UX value before the prompt bridge and action workflows l
 
 The current short-term bridge is intentionally minimal.
 
-- it is currently more restrictive than the desired end state
+- concurrent jobs across different runs are now supported
+- duplicate active jobs for the same run are still blocked
 - persisted job state survives server restart, but interrupted jobs are failed rather than resumed
 - core already has good-enough persisted workflow state for coarse resume semantics
 
 That makes the next logical slices:
 
-1. replace the single-job bridge with multi-workflow server routing keyed by run/process
-2. keep the browser dumb and route prompts/events/responses through the server to the correct Otto process
+1. keep the browser dumb and continue routing prompts/events/responses through the server to the correct run/process
+2. improve live oversight ergonomics for multiple concurrent workflows
 3. optionally add lightweight server persistence (for example SQLite) only if coordination actually needs it

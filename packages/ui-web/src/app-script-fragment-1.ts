@@ -6,9 +6,7 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_1 = `const state = {
   ticketDraft: "",
   ingestDraft: "",
   ingestSourceName: "browser-ingest.md",
-  promptDraft: "",
-  promptSelection: "",
-  seenPromptId: null,
+  promptDrafts: {},
   actionMessage: "",
   actionError: "",
   isCreatingTicket: false,
@@ -71,13 +69,25 @@ function ensureSelectedRun() {
   }
 }
 
-function getActiveJob() {
+function getActiveJobs() {
   const jobs = state.controlPlane?.jobs ?? [];
-  return jobs.find((job) => job.status === 'running' || job.status === 'waiting') ?? null;
+  return jobs.filter((job) => job.status === 'running' || job.status === 'waiting');
 }
 
-function isJobBusy() {
-  return Boolean(getActiveJob());
+function isRunBusy(runId) {
+  return getActiveJobs().some((job) => job.runId === runId);
+}
+
+function getPromptList() {
+  return state.controlPlane?.prompts ?? [];
+}
+
+function getPromptDraft(prompt) {
+  const draft = state.promptDrafts[prompt.id];
+  if (typeof draft === 'string') {
+    return draft;
+  }
+  return typeof prompt.defaultValue === 'string' ? prompt.defaultValue : '';
 }
 
 function clearActionState() {
@@ -111,11 +121,10 @@ function renderTicketList(tickets) {
   if (!tickets.length) {
     return '<p class="subtle">No managed tickets yet.</p>';
   }
-  const busy = isJobBusy();
   return '<div class="ticket-list">' + tickets.map((ticket) => {
     const action = ticket.hasRun
       ? '<span class="badge">started</span>'
-      : '<button class="button button-secondary ticket-start-button" data-ticket-id="' + escapeHtml(ticket.ticketId) + '"' + (busy ? ' disabled' : '') + '>Start</button>';
+      : '<button class="button button-secondary ticket-start-button" data-ticket-id="' + escapeHtml(ticket.ticketId) + '"' + (isRunBusy(ticket.ticketId) ? ' disabled' : '') + '>Start</button>';
     return '<div class="ticket-row">' +
       '<div>' +
         '<strong class="mono">' + escapeHtml(ticket.ticketId) + '</strong>' +
@@ -166,52 +175,63 @@ function renderActionStatus() {
 }
 
 function renderJobStatus() {
-  const job = getActiveJob();
-  if (!job) {
-    const latest = state.controlPlane?.jobs?.[0] ?? null;
-    if (!latest) return '';
-    const className = latest.status === 'failed' ? 'error' : 'success';
-    const detail = latest.error ? escapeHtml(latest.error) : escapeHtml(latest.status);
-    return '<div class="panel stack">' +
-      '<div><p class="eyebrow">Latest job</p><p><strong>' + escapeHtml(latest.kind) + '</strong> <span class="mono">' + escapeHtml(latest.runId) + '</span></p></div>' +
-      '<div class="action-banner ' + className + '">' + detail + '</div>' +
-    '</div>';
-  }
+  const jobs = state.controlPlane?.jobs ?? [];
+  if (!jobs.length) return '';
 
+  const activeJobs = getActiveJobs();
+  const visibleJobs = activeJobs.length > 0 ? activeJobs : jobs.slice(0, 3);
   return '<div class="panel stack">' +
-    '<div><p class="eyebrow">Active job</p><p><strong>' + escapeHtml(job.kind) + '</strong> <span class="mono">' + escapeHtml(job.runId) + '</span></p></div>' +
-    '<div class="badge-row">' +
-      '<span class="badge ' + (job.status === 'waiting' ? 'waiting' : 'active') + '">' + escapeHtml(job.status) + '</span>' +
-      '<span class="badge mono">' + escapeHtml(formatDate(job.startedAt)) + '</span>' +
-    '</div>' +
+    '<div><p class="eyebrow">Jobs</p><p class="subtle">Server-managed workflow activity across concurrent Otto runs.</p></div>' +
+    '<div class="ticket-list">' + visibleJobs.map((job) => {
+      const className = job.status === 'waiting' ? 'waiting' : job.status === 'failed' ? 'stale' : job.status === 'succeeded' ? 'done' : 'active';
+      const detail = job.error ? '<p class="footer-note">' + escapeHtml(job.error) + '</p>' : '';
+      return '<div class="ticket-row">' +
+        '<div>' +
+          '<strong>' + escapeHtml(job.kind) + '</strong> <span class="mono">' + escapeHtml(job.runId) + '</span>' +
+          detail +
+        '</div>' +
+        '<div class="badge-row">' +
+          '<span class="badge ' + className + '">' + escapeHtml(job.status) + '</span>' +
+          '<span class="badge mono">' + escapeHtml(formatDate(job.startedAt)) + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join('') + '</div>' +
   '</div>';
 }
 
 function renderPromptInbox() {
-  const prompt = state.controlPlane?.pendingPrompt;
-  if (!prompt) return '';
-
-  let body = '';
-  if (prompt.kind === 'confirm') {
-    body = '<div class="prompt-actions">' +
-      '<button class="button button-primary prompt-confirm-button" data-prompt-id="' + escapeHtml(prompt.id) + '" data-value="true">Confirm</button>' +
-      '<button class="button prompt-confirm-button" data-prompt-id="' + escapeHtml(prompt.id) + '" data-value="false">Cancel</button>' +
-    '</div>';
-  } else if (prompt.kind === 'select') {
-    body = '<div class="prompt-actions">' + (prompt.choices || []).map((choice) =>
-      '<button class="button prompt-select-button" data-prompt-id="' + escapeHtml(prompt.id) + '" data-choice="' + escapeHtml(choice) + '">' + escapeHtml(choice) + '</button>'
-    ).join('') + '</div>';
-  } else {
-    body = '<textarea id="prompt-draft" class="text-input" rows="6">' + escapeHtml(state.promptDraft) + '</textarea>' +
-      '<div class="prompt-actions">' +
-      '<button class="button button-primary" id="submit-prompt-button" data-prompt-id="' + escapeHtml(prompt.id) + '">Submit response</button>' +
-      '</div>';
-  }
+  const prompts = getPromptList();
+  if (!prompts.length) return '';
 
   return '<div class="panel stack prompt-panel">' +
-    '<div><p class="eyebrow">Prompt inbox</p><p class="subtle">The server is waiting on input for <span class="mono">' + escapeHtml(prompt.runId) + '</span>.</p></div>' +
-    '<pre class="prompt-message">' + escapeHtml(prompt.message) + '</pre>' +
-    body +
+    '<div><p class="eyebrow">Prompt inbox</p><p class="subtle">The server is waiting on input for ' + escapeHtml(prompts.length) + ' prompt' + (prompts.length === 1 ? '' : 's') + '.</p></div>' +
+    '<div class="prompt-list">' + prompts.map((prompt) => {
+      let body = '';
+      if (prompt.kind === 'confirm') {
+        body = '<div class="prompt-actions">' +
+          '<button class="button button-primary prompt-confirm-button" data-prompt-id="' + escapeHtml(prompt.id) + '" data-value="true">Confirm</button>' +
+          '<button class="button prompt-confirm-button" data-prompt-id="' + escapeHtml(prompt.id) + '" data-value="false">Cancel</button>' +
+        '</div>';
+      } else if (prompt.kind === 'select') {
+        body = '<div class="prompt-actions">' + (prompt.choices || []).map((choice) =>
+          '<button class="button prompt-select-button" data-prompt-id="' + escapeHtml(prompt.id) + '" data-choice="' + escapeHtml(choice) + '">' + escapeHtml(choice) + '</button>'
+        ).join('') + '</div>';
+      } else {
+        body = '<textarea class="text-input prompt-draft-input" rows="6" data-prompt-id="' + escapeHtml(prompt.id) + '">' + escapeHtml(getPromptDraft(prompt)) + '</textarea>' +
+          '<div class="prompt-actions">' +
+          '<button class="button button-primary submit-prompt-button" data-prompt-id="' + escapeHtml(prompt.id) + '">Submit response</button>' +
+          '</div>';
+      }
+
+      return '<div class="prompt-card">' +
+        '<div class="detail-topline">' +
+          '<div><p class="eyebrow">' + escapeHtml(prompt.kind) + '</p><p class="subtle">Run <span class="mono">' + escapeHtml(prompt.runId) + '</span></p></div>' +
+          '<span class="badge mono">' + escapeHtml(formatDate(prompt.createdAt)) + '</span>' +
+        '</div>' +
+        '<pre class="prompt-message">' + escapeHtml(prompt.message) + '</pre>' +
+        body +
+      '</div>';
+    }).join('') + '</div>' +
   '</div>';
 }
 
@@ -230,6 +250,7 @@ function renderDetail(detail) {
   const deleteLabel = state.isDeletingRun ? 'Deleting...' : 'Delete run';
   const canResume = run.processStatus !== 'active';
   const canMergeBack = run.processStatus !== 'active' && run.finalReportAvailable;
+  const runBusy = isRunBusy(run.runId);
 
   return '<div class="stack">' +
     renderPromptInbox() +
@@ -248,9 +269,9 @@ function renderDetail(detail) {
             (run.needsUserInput ? '<span class="badge waiting">awaiting input</span>' : '') +
           '</div>' +
           '<div class="prompt-actions">' +
-            (canResume ? '<button class="button button-primary" id="resume-run-button" data-run-id="' + escapeHtml(run.runId) + '"' + (isJobBusy() ? ' disabled' : '') + '>Resume</button>' : '') +
-            (canMergeBack ? '<button class="button button-secondary" id="merge-back-button" data-run-id="' + escapeHtml(run.runId) + '"' + (isJobBusy() ? ' disabled' : '') + '>Merge back</button>' : '') +
-            '<button class="button button-danger" id="delete-run-button" data-run-id="' + escapeHtml(run.runId) + '"' + (state.isDeletingRun || isJobBusy() ? ' disabled' : '') + '>' + deleteLabel + '</button>' +
+            (canResume ? '<button class="button button-primary" id="resume-run-button" data-run-id="' + escapeHtml(run.runId) + '"' + (runBusy ? ' disabled' : '') + '>Resume</button>' : '') +
+            (canMergeBack ? '<button class="button button-secondary" id="merge-back-button" data-run-id="' + escapeHtml(run.runId) + '"' + (runBusy ? ' disabled' : '') + '>Merge back</button>' : '') +
+            '<button class="button button-danger" id="delete-run-button" data-run-id="' + escapeHtml(run.runId) + '"' + (state.isDeletingRun || runBusy ? ' disabled' : '') + '>' + deleteLabel + '</button>' +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -324,14 +345,14 @@ function renderApp() {
         '<div class="panel stack">' +
           '<div><p class="eyebrow">Create ticket</p><p class="subtle">Quick browser action routed through the shared core service layer.</p></div>' +
           '<textarea id="ticket-draft" class="text-input" rows="5" placeholder="Describe the work you want Otto to tackle.">' + escapeHtml(state.ticketDraft) + '</textarea>' +
-          '<button class="button button-primary" id="create-ticket-button"' + (state.isCreatingTicket || isJobBusy() ? ' disabled' : '') + '>' + createLabel + '</button>' +
+          '<button class="button button-primary" id="create-ticket-button"' + (state.isCreatingTicket ? ' disabled' : '') + '>' + createLabel + '</button>' +
         '</div>' +
         '<div class="panel stack">' +
           '<div><p class="eyebrow">Ingest external ticket</p><p class="subtle">Paste or type markdown, or upload a file and send its contents through the ingest flow.</p></div>' +
-          '<input id="ingest-file-input" class="file-input" type="file"' + (state.isIngestingTicket || isJobBusy() ? ' disabled' : '') + ' />' +
-          '<input id="ingest-source-name" class="text-line-input mono" type="text" value="' + escapeHtml(state.ingestSourceName) + '"' + (state.isIngestingTicket || isJobBusy() ? ' disabled' : '') + ' />' +
+          '<input id="ingest-file-input" class="file-input" type="file"' + (state.isIngestingTicket ? ' disabled' : '') + ' />' +
+          '<input id="ingest-source-name" class="text-line-input mono" type="text" value="' + escapeHtml(state.ingestSourceName) + '"' + (state.isIngestingTicket ? ' disabled' : '') + ' />' +
           '<textarea id="ingest-draft" class="text-input" rows="7" placeholder="# Imported ticket\n\nPaste or type external ticket content here.">' + escapeHtml(state.ingestDraft) + '</textarea>' +
-          '<button class="button button-primary" id="ingest-ticket-button"' + (state.isIngestingTicket || isJobBusy() ? ' disabled' : '') + '>' + ingestLabel + '</button>' +
+          '<button class="button button-primary" id="ingest-ticket-button"' + (state.isIngestingTicket ? ' disabled' : '') + '>' + ingestLabel + '</button>' +
         '</div>' +
         '<div class="panel stack">' +
           '<div><p class="eyebrow">Tickets</p><p class="subtle">Start browser-driven runs directly from the inventory.</p></div>' +

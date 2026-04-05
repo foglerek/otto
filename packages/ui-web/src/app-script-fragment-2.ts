@@ -37,21 +37,21 @@ export const UI_WEB_APP_SCRIPT_FRAGMENT_2 = `  const refresh = document.getEleme
     });
   }
 
-  const promptDraft = document.getElementById('prompt-draft');
-  if (promptDraft) {
-    promptDraft.addEventListener('input', (event) => {
-      state.promptDraft = event.target.value;
-    });
-  }
-
-  const submitPromptButton = document.getElementById('submit-prompt-button');
-  if (submitPromptButton) {
-    submitPromptButton.addEventListener('click', () => {
-      const promptId = submitPromptButton.getAttribute('data-prompt-id');
+  document.querySelectorAll('.prompt-draft-input').forEach((element) => {
+    element.addEventListener('input', (event) => {
+      const promptId = event.target.getAttribute('data-prompt-id');
       if (!promptId) return;
-      void submitPrompt(promptId, state.promptDraft);
+      state.promptDrafts[promptId] = event.target.value;
     });
-  }
+  });
+
+  document.querySelectorAll('.submit-prompt-button').forEach((element) => {
+    element.addEventListener('click', () => {
+      const promptId = element.getAttribute('data-prompt-id');
+      if (!promptId) return;
+      void submitPrompt(promptId, state.promptDrafts[promptId] || '');
+    });
+  });
 
   const createButton = document.getElementById('create-ticket-button');
   if (createButton) {
@@ -102,17 +102,14 @@ async function loadDashboard() {
 
 async function loadControlPlane() {
   state.controlPlane = await fetchJson('/api/control-plane');
-  const prompt = state.controlPlane.pendingPrompt;
-  if (prompt && prompt.id !== state.seenPromptId) {
-    state.seenPromptId = prompt.id;
+  const nextDrafts = {};
+  for (const prompt of state.controlPlane.prompts || []) {
     if (prompt.kind === 'text') {
-      state.promptDraft = typeof prompt.defaultValue === 'string' ? prompt.defaultValue : '';
+      nextDrafts[prompt.id] = state.promptDrafts[prompt.id]
+        || (typeof prompt.defaultValue === 'string' ? prompt.defaultValue : '');
     }
   }
-  if (!prompt) {
-    state.seenPromptId = null;
-    state.promptDraft = '';
-  }
+  state.promptDrafts = nextDrafts;
 }
 
 async function loadSelectedRun() {
@@ -137,7 +134,7 @@ async function refreshAll() {
 
 async function createTicket() {
   const ticketText = state.ticketDraft.trim();
-  if (!ticketText || state.isCreatingTicket || isJobBusy()) {
+  if (!ticketText || state.isCreatingTicket) {
     return;
   }
 
@@ -168,7 +165,7 @@ async function createTicket() {
 
 async function ingestTicket() {
   const sourceText = state.ingestDraft.trim();
-  if (!sourceText || state.isIngestingTicket || isJobBusy()) {
+  if (!sourceText || state.isIngestingTicket) {
     return;
   }
 
@@ -202,7 +199,7 @@ async function ingestTicket() {
 }
 
 async function startRun(ticketId) {
-  if (isJobBusy()) return;
+  if (isRunBusy(ticketId)) return;
   clearActionState();
   renderApp();
 
@@ -225,7 +222,7 @@ async function startRun(ticketId) {
 }
 
 async function resumeRun(runId) {
-  if (isJobBusy()) return;
+  if (isRunBusy(runId)) return;
   clearActionState();
   renderApp();
 
@@ -244,7 +241,7 @@ async function resumeRun(runId) {
 }
 
 async function mergeBackRun(runId) {
-  if (isJobBusy()) return;
+  if (isRunBusy(runId)) return;
   clearActionState();
   renderApp();
 
@@ -263,7 +260,7 @@ async function mergeBackRun(runId) {
 }
 
 async function deleteRun(runId) {
-  if (state.isDeletingRun || isJobBusy()) {
+  if (state.isDeletingRun || isRunBusy(runId)) {
     return;
   }
 
@@ -304,6 +301,7 @@ async function submitPrompt(promptId, value) {
       },
       body: JSON.stringify({ value }),
     });
+    delete state.promptDrafts[promptId];
     state.actionMessage = 'Submitted prompt response.';
     await refreshAll();
   } catch (error) {

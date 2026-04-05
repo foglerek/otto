@@ -392,6 +392,20 @@ textarea {
   gap: 8px;
 }
 
+.prompt-list {
+  display: grid;
+  gap: 12px;
+}
+
+.prompt-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(202, 214, 229, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .ticket-row {
   display: flex;
   align-items: center;
