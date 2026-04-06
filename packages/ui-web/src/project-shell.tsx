@@ -101,10 +101,10 @@ function OverviewStory(props: {
   }
 
   return (
-    <div className="project-story-list">
+      <div className="project-story-list">
       {[...timeline].reverse().map((item, index) => (
         <article className={`project-story-card ${item.status ? `project-story-${item.status}` : ""}`} key={`${item.timestamp || index}-${item.title}-${index}`}>
-          <div className="project-story-marker" />
+          <div className="project-story-marker">{item.icon ? <img className="narrative-icon" src={`/static/icons/${item.icon}.png`} alt={`${item.title} source`} /> : null}</div>
           <div className="project-story-content">
             <div className="project-story-header">
               <h3 className="project-story-title">{item.title}</h3>

@@ -1,7 +1,7 @@
 import React from "react";
 
 import { summarizeAgUiEvent } from "./ag-ui-summary.js";
-import { buildAgUiTimeline, splitAgUiEvents } from "./ag-ui-timeline.js";
+import { buildAgUiTimeline, splitAgUiEvents, type AgUiTimelineItem } from "./ag-ui-timeline.js";
 import { CollapsibleCard } from "./disclosure.js";
 import { ProjectOverview, type OverviewPanel } from "./project-shell.js";
 import { RunDetailStats, RunProgressStrip } from "./run-detail-chrome.js";
@@ -22,6 +22,13 @@ import type {
   RunArtifact,
   RunDetailData,
 } from "./types.js";
+
+function NarrativeIcon(props: { item: Pick<AgUiTimelineItem, "title"> & { icon?: AgUiTimelineItem["icon"] } }): React.JSX.Element | null {
+  if (!props.item.icon) {
+    return null;
+  }
+  return <img className="narrative-icon" src={`/static/icons/${props.item.icon}.png`} alt={`${props.item.title} source`} />;
+}
 
 export function ShellLoading(): React.JSX.Element {
   return (
@@ -174,7 +181,7 @@ export function AgUiFeed(props: { runId: string; events: AgUiEvent[] }): React.J
                       : "neutral";
             return (
               <div className={`timeline-entry ag-ui-card ag-ui-card-${kind}`} key={`${item.timestamp || index}-${item.title}-${index}`}>
-                <div className="timeline-entry-marker" />
+                <div className="timeline-entry-marker"><NarrativeIcon item={item} /></div>
                 <div className="timeline-entry-body">
                   <div className="timeline-entry-header">
                     <strong className="timeline-entry-title">{item.title}</strong>

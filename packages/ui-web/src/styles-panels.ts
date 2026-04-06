@@ -172,11 +172,21 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
 }
 
 .timeline-entry-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 12px;
   height: 12px;
   margin-top: 14px;
   border-radius: 999px;
   background: rgba(202, 214, 229, 0.35);
+}
+
+.narrative-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
 }
 
 .ag-ui-card-message .timeline-entry-marker {

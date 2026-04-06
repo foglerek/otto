@@ -17,6 +17,101 @@ function hasOutstandingPrompts(event: AgUiEvent): boolean {
   return Array.isArray(event.value?.prompts) && event.value.prompts.length > 0;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function capitalizeSentence(value: string): string {
+  return value ? `${value[0]?.toUpperCase() || ""}${value.slice(1)}` : value;
+}
+
+function cleanHeadlineText(value: string): string {
+  let cleaned = value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[`*_#]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const preferredClause = cleaned.match(/(?:^|[.!?]\s+)(?:next|now|then)\s+i(?:['’]?m| am|['’]?ll| will)\s+(.+)$/i)?.[1]
+    || cleaned.match(/(?:^|[.!?]\s+)let me\s+(.+)$/i)?.[1]
+    || cleaned.match(/^i(?:['’]?m| am|['’]?ll| will)\s+(.+)$/i)?.[1];
+  if (preferredClause) {
+    cleaned = preferredClause.trim();
+  }
+
+  cleaned = cleaned
+    .replace(/^(?:next|now|then)\s+/i, "")
+    .replace(/^i(?:['’]?m| am|['’]?ll| will)\s+/i, "")
+    .replace(/^let me\s+/i, "")
+    .replace(/^good\s+[—-]?\s*/i, "")
+    .replace(/^the plan now\s+/i, "plan now ")
+    .replace(/[:;,-]\s*$/, "")
+    .trim();
+
+  return capitalizeSentence(cleaned);
+}
+
+function extractPreferredActionHeadline(value: string): { title: string; matchedText: string } | undefined {
+  const match = value.match(/(?:^|[.!?]\s+)(?:next|now|then)\s+i(?:['’]?m| am|['’]?ll| will)\s+(.+)$/i)
+    || value.match(/(?:^|[.!?]\s+)let me\s+(.+)$/i)
+    || value.match(/^i(?:['’]?m| am|['’]?ll| will)\s+(.+)$/i);
+  if (!match?.[1]) {
+    return undefined;
+  }
+  return {
+    title: cleanHeadlineText(match[1]),
+    matchedText: match[0].trim(),
+  };
+}
+
+function splitNarrativeBody(body: string): { title?: string; body: string } {
+  const trimmed = body.trim();
+  if (!trimmed) {
+    return { body: "" };
+  }
+
+  const nonEmptyLines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const firstLine = nonEmptyLines[0] || "";
+  const firstSentence = trimmed.match(/^[^\n.!?]+[.!?]?/u)?.[0]?.trim() || firstLine;
+  const preferredActionHeadline = extractPreferredActionHeadline(trimmed);
+  const headlineSource = firstLine.includes(". ") || firstLine.includes("! ") || firstLine.includes("? ")
+    ? firstSentence
+    : (firstLine.length <= 140 ? firstLine : firstSentence);
+  const candidate = preferredActionHeadline?.title || cleanHeadlineText(headlineSource);
+
+  if (!candidate) {
+    return { body: trimmed };
+  }
+
+  const normalizedBody = trimmed.replace(/^\s*<OK>\s*/i, "").trim();
+  const normalizedCandidate = candidate.replace(/[.!?]+$/, "").trim().toLowerCase();
+  const withoutTitle = preferredActionHeadline
+    ? normalizedBody.replace(preferredActionHeadline.matchedText, "").replace(/^[:.!?\s-]+/, "").trim()
+    : normalizedBody
+      .replace(new RegExp(`^${candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[:.!?\\s]*`, "i"), "")
+      .trim();
+
+  if (!withoutTitle || withoutTitle.toLowerCase() === normalizedCandidate) {
+    return { title: candidate, body: "" };
+  }
+
+  return { title: candidate, body: withoutTitle };
+}
+
+function extractModelLabel(event: AgUiEvent): string {
+  const rawEvent = asRecord(event.rawEvent);
+  const message = asRecord(rawEvent?.message);
+  const item = asRecord(rawEvent?.item);
+  return asString(message?.model) || asString(item?.model) || "";
+}
+
 export type AgUiTimelineItem = {
   kind: "message" | "tool" | "reasoning" | "control" | "event";
   title: string;
@@ -24,7 +119,33 @@ export type AgUiTimelineItem = {
   body: string;
   timestamp?: number;
   status?: "running" | "done" | "attention" | "neutral";
+  icon?: "otto" | "claude" | "codex";
 };
+
+function classifySourceIcon(event: AgUiEvent): AgUiTimelineItem["icon"] {
+  const rawEvent = asRecord(event.rawEvent);
+  const message = asRecord(rawEvent?.message);
+  const item = asRecord(rawEvent?.item);
+  const signals = [
+    event.messageId,
+    event.toolCallName,
+    event.source,
+    extractModelLabel(event),
+    asString(message?.type),
+    asString(item?.type),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (signals.includes("claude")) {
+    return "claude";
+  }
+  if (signals.includes("codex") || signals.includes("gpt-")) {
+    return "codex";
+  }
+  return "otto";
+}
 
 function hiddenInPrimaryFeed(event: AgUiEvent): boolean {
   return event.type === "RAW"
@@ -71,10 +192,11 @@ function consumeMessageEvent(items: AgUiTimelineItem[], byMessageId: Map<string,
   const existing = byMessageId.get(id) ?? {
     kind: "message" as const,
     title: "Otto",
-    meta: "",
+    meta: extractModelLabel(event),
     body: "",
     timestamp: event.timestamp,
     status: "done" as const,
+    icon: classifySourceIcon(event),
   };
   if (event.type === "TEXT_MESSAGE_CONTENT") {
     existing.body += `${event.delta || ""}`;
@@ -95,22 +217,11 @@ function finalizeMessageItems(items: AgUiTimelineItem[]): AgUiTimelineItem[] {
     if (!body) {
       return item;
     }
-    const compact = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-    const firstLine = body
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line.length > 0);
-    if (compact.length <= 160 && !body.includes("\n")) {
-      return {
-        ...item,
-        title: compact,
-        body: "",
-        meta: item.meta || "Otto",
-      };
-    }
+    const narrative = splitNarrativeBody(body);
     return {
       ...item,
-      title: firstLine && firstLine.length <= 120 ? firstLine : item.title,
+      title: narrative.title || item.title,
+      body: narrative.body,
       meta: item.meta || "Otto",
     };
   });
@@ -120,7 +231,8 @@ function isNoiseNarrativeItem(item: AgUiTimelineItem): boolean {
   const compact = `${item.title} ${item.body}`.replace(/\s+/g, " ").trim();
   return /^<DECISION>[^<]+<\/DECISION>$/i.test(compact)
     || /^<OK>$/i.test(compact)
-    || /^OK$/i.test(compact);
+    || /^OK$/i.test(compact)
+    || (item.title === "Otto" && /^<OK>$/i.test(item.body.trim()));
 }
 
 function isDecisionOnlyNarrativeItem(item: AgUiTimelineItem): boolean {
@@ -195,6 +307,7 @@ export function buildAgUiTimeline(runId: string, events: AgUiEvent[]): AgUiTimel
       body: summary.body,
       timestamp: event.timestamp,
       status: classifyStatus(event),
+      icon: classifySourceIcon(event),
     });
   }
 

@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
 import http from "node:http";
+import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import { loadUiWebAssets, renderUiWebDocument } from "@otto/ui-web";
 
@@ -13,6 +16,9 @@ import { loadWebDashboardData, loadWebRunDetailData, resolveWebRepoContext } fro
 import { createOttoWebControlPlane, type OttoWebControlPlane } from "./control-plane.js";
 import { streamAgUiRunEvents } from "./ag-ui-stream.js";
 import { OttoWebLiveStreamHub } from "./live-stream.js";
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const ottoWorkspaceStaticRoot = path.resolve(moduleDir, "../../../../static");
 
 export interface OttoWebServerHandle {
   url: string;
@@ -63,12 +69,35 @@ function openBrowser(url: string): void {
   }
 }
 
+async function resolveStaticAssetPath(cwd: string, relativePath: string): Promise<string | null> {
+  const candidateRoots = [
+    path.resolve(cwd, "static"),
+    ottoWorkspaceStaticRoot,
+  ];
+
+  for (const staticRoot of candidateRoots) {
+    const absolutePath = path.resolve(staticRoot, relativePath);
+    if (!absolutePath.startsWith(`${staticRoot}${path.sep}`)) {
+      continue;
+    }
+    try {
+      await fs.access(absolutePath);
+      return absolutePath;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 function serveLoadedStaticAsset(args: {
+  cwd: string;
   pathname: string;
   res: http.ServerResponse;
   javascript: string;
   stylesheet: string;
-}): boolean {
+}): Promise<boolean> | boolean {
   if (args.pathname === "/") {
     writeResponse(args.res, 200, renderUiWebDocument(), "text/html; charset=utf-8");
     return true;
@@ -82,6 +111,30 @@ function serveLoadedStaticAsset(args: {
   if (args.pathname === "/app.js") {
     writeResponse(args.res, 200, args.javascript, "text/javascript; charset=utf-8");
     return true;
+  }
+
+  if (args.pathname.startsWith("/static/")) {
+    const relativePath = args.pathname.slice(1);
+    return resolveStaticAssetPath(args.cwd, relativePath.slice("static/".length)).then((absolutePath) => {
+      if (!absolutePath) {
+        writeJson(args.res, 404, { error: `Not found: ${args.pathname}` });
+        return true;
+      }
+
+      return fs.readFile(absolutePath).then((buffer) => {
+        const contentType = absolutePath.endsWith(".png")
+          ? "image/png"
+          : absolutePath.endsWith(".svg")
+            ? "image/svg+xml; charset=utf-8"
+            : "application/octet-stream";
+        args.res.writeHead(200, {
+          "content-type": contentType,
+          "cache-control": "no-store",
+        });
+        args.res.end(buffer);
+        return true;
+      });
+    });
   }
 
   return false;
@@ -338,7 +391,7 @@ async function createHttpServer(cwd: string): Promise<{
       const pathname = requestUrl.pathname;
       const method = req.method ?? "GET";
 
-      if (serveLoadedStaticAsset({ pathname, res, ...assets })) {
+      if (await serveLoadedStaticAsset({ cwd, pathname, res, ...assets })) {
         return;
       }
 

@@ -222,6 +222,9 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
 }
 
 .project-story-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 10px;
   height: 10px;
   margin-top: 14px;
