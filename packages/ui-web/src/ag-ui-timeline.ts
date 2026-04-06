@@ -35,6 +35,19 @@ function hiddenInPrimaryFeed(event: AgUiEvent): boolean {
     || (event.type === "CUSTOM" && event.name === "otto.control_plane" && !hasOutstandingPrompts(event));
 }
 
+function isNarrativeFallbackEvent(event: AgUiEvent): boolean {
+  if (event.type === "RUN_STARTED" || event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") {
+    return true;
+  }
+  if (event.type === "CUSTOM" && ["otto.phase_entered", "otto.task_decision_recorded"].includes(event.name || "")) {
+    return true;
+  }
+  if (event.type === "CUSTOM" && event.name === "otto.control_plane" && hasOutstandingPrompts(event)) {
+    return true;
+  }
+  return event.type.startsWith("TEXT_MESSAGE");
+}
+
 export function splitAgUiEvents(events: AgUiEvent[]): { primary: AgUiEvent[]; debug: AgUiEvent[] } {
   const primary = events.filter((event) => !hiddenInPrimaryFeed(event));
   const debug = events.filter((event) => hiddenInPrimaryFeed(event));
@@ -42,15 +55,7 @@ export function splitAgUiEvents(events: AgUiEvent[]): { primary: AgUiEvent[]; de
     return { primary, debug };
   }
 
-  const fallbackPrimary = events.filter((event) => {
-    if (event.type === "RUN_STARTED" || event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") {
-      return true;
-    }
-    if (event.type === "CUSTOM" && (event.name === "otto.phase_entered" || (event.name === "otto.control_plane" && hasOutstandingPrompts(event)))) {
-      return true;
-    }
-    return event.type.startsWith("TEXT_MESSAGE");
-  });
+  const fallbackPrimary = events.filter(isNarrativeFallbackEvent);
 
   return {
     primary: fallbackPrimary,
@@ -104,6 +109,13 @@ function finalizeMessageItems(items: AgUiTimelineItem[]): AgUiTimelineItem[] {
       meta: item.meta || "Otto",
     };
   });
+}
+
+function isNoiseNarrativeItem(item: AgUiTimelineItem): boolean {
+  const compact = `${item.title} ${item.body}`.replace(/\s+/g, " ").trim();
+  return /^<DECISION>[^<]+<\/DECISION>$/i.test(compact)
+    || /^<OK>$/i.test(compact)
+    || /^OK$/i.test(compact);
 }
 
 function consumeToolEvent(items: AgUiTimelineItem[], byToolId: Map<string, AgUiTimelineItem>, event: AgUiEvent): boolean {
@@ -176,5 +188,7 @@ export function buildAgUiTimeline(runId: string, events: AgUiEvent[]): AgUiTimel
     });
   }
 
-  return finalizeMessageItems(items).filter((item) => item.body || item.kind !== "message" || item.title);
+  return finalizeMessageItems(items).filter(
+    (item) => (item.body || item.kind !== "message" || item.title) && !isNoiseNarrativeItem(item),
+  );
 }

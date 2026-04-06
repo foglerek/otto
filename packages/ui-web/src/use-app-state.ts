@@ -81,7 +81,14 @@ function useRunDetail(setState: React.Dispatch<React.SetStateAction<AppState>>, 
     void fetchJson<RunDetailData>(`/api/runs/${encodeURIComponent(runId)}`)
       .then((detail) => {
         if (cancelled) return;
-        setState((current) => ({ ...current, detailCache: { ...current.detailCache, [detail.summary.runId]: detail } }));
+        setState((current) => ({
+          ...current,
+          detailCache: { ...current.detailCache, [detail.summary.runId]: detail },
+          agUiEventsByRun: {
+            ...current.agUiEventsByRun,
+            [detail.summary.runId]: detail.recentAgUiEvents,
+          },
+        }));
       })
       .catch((error) => {
         if (!cancelled) setFatalError(error instanceof Error ? error.message : String(error));
@@ -131,6 +138,10 @@ function useAgUiStream(setState: React.Dispatch<React.SetStateAction<AppState>>,
       const parsed = JSON.parse(event.data) as AgUiEvent;
       setState((current) => {
         const existing = current.agUiEventsByRun[runId] ?? [];
+        const alreadySeen = existing.some((event) => JSON.stringify(event) === JSON.stringify(parsed));
+        if (alreadySeen) {
+          return current;
+        }
         return { ...current, agUiEventsByRun: { ...current.agUiEventsByRun, [runId]: [...existing, parsed].slice(-80) } };
       });
     };

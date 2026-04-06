@@ -15,6 +15,19 @@ import {
 } from "./task-failure.js";
 import { dispatchWorkflowAction } from "./state-reducer.js";
 import { runStepWithHooks } from "./hooks.js";
+import { emitRunEvent } from "./events.js";
+
+function describeTaskForStory(taskFile: string): string {
+  const fileName = path.basename(taskFile, ".md");
+  const numberedTask = fileName.match(/^task-(\d+)(?:-remediation-(\d+))?$/);
+  if (numberedTask) {
+    const [, taskNumber, remediationAttempt] = numberedTask;
+    return remediationAttempt
+      ? `task ${taskNumber} remediation ${remediationAttempt}`
+      : `task ${taskNumber}`;
+  }
+  return fileName.replace(/-/g, " ");
+}
 
 const RECOVERY_RESTART = "Restart task";
 const RECOVERY_SKIP = "Skip and advance";
@@ -346,6 +359,18 @@ export async function executeIntegratedTaskLoop(args: {
       });
       continue;
     }
+
+    await emitRunEvent({
+      logger: args.runtime.events,
+      runId: args.runtime.state.runId,
+      type: "task_decision_recorded",
+      data: {
+        taskFile,
+        taskLabel: describeTaskForStory(taskFile),
+        decision: decision.acceptanceDecision,
+        outputPath: decision.acceptanceOutput,
+      },
+    });
 
     if (decision.acceptanceDecision === "remediation") {
       await queue.removeCurrentTask();

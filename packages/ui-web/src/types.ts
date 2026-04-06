@@ -75,6 +75,7 @@ export interface RunDetailData {
   artifacts: RunArtifact[];
   recentEvents: RunEvent[];
   recentExecs: ExecEvent[];
+  recentAgUiEvents: AgUiEvent[];
 }
 
 export interface ControlPlaneJob {

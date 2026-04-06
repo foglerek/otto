@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { OttoConfig } from "@otto/config";
 import type { OttoExecEvent, OttoRunEvent } from "../workflow/events.js";
+import type { OttoAgUiEvent } from "../ag-ui.js";
 
 import { resolveArtifactPaths } from "../artifacts.js";
 import { findNearestOttoConfigPath, loadOttoConfig } from "../cli/config.js";
@@ -84,6 +85,7 @@ export interface OttoWebRunDetailData {
   artifacts: OttoWebArtifactPreview[];
   recentEvents: OttoRunEvent[];
   recentExecs: OttoExecEvent[];
+  recentAgUiEvents: OttoAgUiEvent[];
 }
 
 const ARTIFACT_MAX_CHARS = 16_000;
@@ -299,7 +301,7 @@ export async function loadWebRunDetailData(args: {
     : lock?.pid ?? null;
   const summary = await withArtifactFlags(summarizeRun(state, processStatus, lockPid), state);
 
-  const [runFiles, ticket, plan, decisionCards, finalReport, recentEvents, recentExecs] = await Promise.all([
+  const [runFiles, ticket, plan, decisionCards, finalReport, recentEvents, recentExecs, recentAgUiEvents] = await Promise.all([
     listRunFiles(state.runDir),
     readArtifactPreview({
       id: "ticket",
@@ -327,6 +329,7 @@ export async function loadWebRunDetailData(args: {
     }),
     readJsonlTail<OttoRunEvent>(path.join(state.runDir, "events.jsonl")),
     readJsonlTail<OttoExecEvent>(path.join(state.runDir, "exec.jsonl")),
+    readJsonlTail<OttoAgUiEvent>(path.join(state.runDir, "ag-ui-events.jsonl"), 80),
   ]);
 
   return {
@@ -338,5 +341,6 @@ export async function loadWebRunDetailData(args: {
     artifacts: [ticket, plan, decisionCards, finalReport],
     recentEvents,
     recentExecs,
+    recentAgUiEvents,
   };
 }

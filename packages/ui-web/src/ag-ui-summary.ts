@@ -70,6 +70,7 @@ function summarizeCustomEvent(event: AgUiEvent) {
     "otto.control_plane": () => summarizeControlPlaneEvent(event),
     "otto.phase_transition": () => summarizePhaseTransition(event),
     "otto.phase_entered": () => summarizePhaseEntered(event),
+    "otto.task_decision_recorded": () => summarizeTaskDecision(event),
     "otto.exec_start": () => summarizeExecStart(event),
     "otto.exec_result": () => summarizeExecResult(event),
   };
@@ -77,6 +78,23 @@ function summarizeCustomEvent(event: AgUiEvent) {
     return null;
   }
   return handlers[event.name]();
+}
+
+function summarizeTaskDecision(event: AgUiEvent) {
+  const value = asRecord(event.value);
+  const data = asRecord(value?.data);
+  const decision = asString(data?.decision);
+  const taskLabel = asString(data?.taskLabel) || "task";
+  if (decision === "acceptance") {
+    return { title: `Approved ${taskLabel}`, meta: "", body: `${taskLabel} was accepted and will be committed.` };
+  }
+  if (decision === "remediation") {
+    return { title: `Requested follow-up for ${taskLabel}`, meta: "", body: `${taskLabel} needs another pass before it can be accepted.` };
+  }
+  if (decision === "failed") {
+    return { title: `Rejected ${taskLabel}`, meta: "", body: `${taskLabel} was rejected and will be restarted from the base task.` };
+  }
+  return { title: "Recorded task decision", meta: "", body: taskLabel };
 }
 
 function summarizeReasoningEvent(event: AgUiEvent) {
