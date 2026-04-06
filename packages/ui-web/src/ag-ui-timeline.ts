@@ -96,6 +96,10 @@ function finalizeMessageItems(items: AgUiTimelineItem[]): AgUiTimelineItem[] {
       return item;
     }
     const compact = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const firstLine = body
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0);
     if (compact.length <= 160 && !body.includes("\n")) {
       return {
         ...item,
@@ -106,6 +110,7 @@ function finalizeMessageItems(items: AgUiTimelineItem[]): AgUiTimelineItem[] {
     }
     return {
       ...item,
+      title: firstLine && firstLine.length <= 120 ? firstLine : item.title,
       meta: item.meta || "Otto",
     };
   });
@@ -116,6 +121,11 @@ function isNoiseNarrativeItem(item: AgUiTimelineItem): boolean {
   return /^<DECISION>[^<]+<\/DECISION>$/i.test(compact)
     || /^<OK>$/i.test(compact)
     || /^OK$/i.test(compact);
+}
+
+function isDecisionOnlyNarrativeItem(item: AgUiTimelineItem): boolean {
+  const compact = `${item.title} ${item.body}`.replace(/\s+/g, " ").trim().toLowerCase();
+  return compact === "acceptance" || compact === "remediation" || compact === "failed";
 }
 
 function consumeToolEvent(items: AgUiTimelineItem[], byToolId: Map<string, AgUiTimelineItem>, event: AgUiEvent): boolean {
@@ -189,6 +199,6 @@ export function buildAgUiTimeline(runId: string, events: AgUiEvent[]): AgUiTimel
   }
 
   return finalizeMessageItems(items).filter(
-    (item) => (item.body || item.kind !== "message" || item.title) && !isNoiseNarrativeItem(item),
+    (item) => (item.body || item.kind !== "message" || item.title) && !isNoiseNarrativeItem(item) && !isDecisionOnlyNarrativeItem(item),
   );
 }

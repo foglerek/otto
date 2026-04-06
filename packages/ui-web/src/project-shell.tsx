@@ -83,8 +83,11 @@ function OverviewSidebar(props: {
 function OverviewStory(props: {
   run: DashboardRunSummary;
   state: AppState;
+  selectedDetail: RunDetailData | null;
 }): React.JSX.Element {
-  const events = props.state.agUiEventsByRun[props.run.runId] || [];
+  const events = props.state.agUiEventsByRun[props.run.runId]
+    || (props.selectedDetail?.summary.runId === props.run.runId ? props.selectedDetail.recentAgUiEvents : [])
+    || [];
   const timeline = buildAgUiTimeline(props.run.runId, splitAgUiEvents(events).primary);
 
   if (timeline.length === 0) {
@@ -173,7 +176,7 @@ function OverviewComposer(props: {
               {props.selectedDetail.summary.needsUserInput ? <span className="badge waiting">awaiting input</span> : null}
             </div>
           </div>
-          <OverviewStory run={props.selectedDetail.summary} state={props.state} />
+          <OverviewStory run={props.selectedDetail.summary} state={props.state} selectedDetail={props.selectedDetail} />
         </div>
       </div>
       <div className="project-chat-inputRow">
