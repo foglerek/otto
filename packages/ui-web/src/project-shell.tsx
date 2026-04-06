@@ -103,17 +103,14 @@ function OverviewStory(props: {
         <article className={`project-story-card ${item.status ? `project-story-${item.status}` : ""}`} key={`${item.timestamp || index}-${item.title}-${index}`}>
           <div className="project-story-marker" />
           <div className="project-story-content">
-            <div className="detail-topline">
-              <div>
-                <p className="eyebrow">{item.kind}</p>
-                <h3 className="project-story-title">{item.title}</h3>
-              </div>
-              <div className="badge-row">
-                {item.meta ? <span className="badge mono">{item.meta}</span> : null}
-                <span className="badge mono">{item.timestamp ? formatDate(item.timestamp) : "-"}</span>
+            <div className="project-story-header">
+              <h3 className="project-story-title">{item.title}</h3>
+              <div className="project-story-meta">
+                {item.meta ? <span>{item.meta}</span> : null}
+                <span className="mono">{item.timestamp ? formatDate(item.timestamp) : "-"}</span>
               </div>
             </div>
-            {item.body ? <div className="project-story-body">{item.body}</div> : <p className="footer-note">No additional payload.</p>}
+            {item.body ? <div className="project-story-body">{item.body}</div> : null}
           </div>
         </article>
       ))}
@@ -169,7 +166,7 @@ function OverviewComposer(props: {
           <div className="project-story-topline">
             <div>
               <p className="eyebrow">Story</p>
-              <h3 className="project-section-title">Latest run narrative</h3>
+              <h3 className="project-section-title">Latest narrative</h3>
             </div>
             <div className="badge-row">
               {props.selectedDetail.summary.finalReportAvailable ? <span className="badge">report ready</span> : null}

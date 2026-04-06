@@ -157,26 +157,33 @@ export function AgUiFeed(props: { runId: string; events: AgUiEvent[] }): React.J
   return (
     <article className="timeline-card">
       <p className="eyebrow">AG-UI</p>
-      <h3>Run event feed</h3>
+      <h3>Run narrative</h3>
       {timelineItems.length > 0 ? (
         <div className="timeline-story">
           {[...timelineItems].reverse().map((item, index) => {
-            const kind = item.kind === "message" ? "message" : item.kind === "tool" ? "tool" : item.kind === "reasoning" ? "reasoning" : item.kind === "control" ? "control" : "neutral";
+            const kind = item.status === "attention"
+              ? "error"
+              : item.kind === "message"
+                ? "message"
+                : item.kind === "tool"
+                  ? "tool"
+                  : item.kind === "reasoning"
+                    ? "reasoning"
+                    : item.kind === "control"
+                      ? "control"
+                      : "neutral";
             return (
               <div className={`timeline-entry ag-ui-card ag-ui-card-${kind}`} key={`${item.timestamp || index}-${item.title}-${index}`}>
                 <div className="timeline-entry-marker" />
                 <div className="timeline-entry-body">
-                  <div className="detail-topline">
-                    <div>
-                      <p className="eyebrow">{item.kind}</p>
-                      <p className="subtle">{item.title}</p>
-                    </div>
-                    <div className="badge-row">
-                      {item.meta ? <span className="badge mono">{item.meta}</span> : null}
-                      <span className="badge mono">{item.timestamp ? formatDate(item.timestamp) : "-"}</span>
+                  <div className="timeline-entry-header">
+                    <strong className="timeline-entry-title">{item.title}</strong>
+                    <div className="timeline-entry-meta">
+                      {item.meta ? <span>{item.meta}</span> : null}
+                      <span className="mono">{item.timestamp ? formatDate(item.timestamp) : "-"}</span>
                     </div>
                   </div>
-                  {item.body ? <div className="timeline-entry-text">{item.body}</div> : <p className="footer-note">No body payload.</p>}
+                  {item.body ? <div className="timeline-entry-text">{item.body}</div> : null}
                 </div>
               </div>
             );

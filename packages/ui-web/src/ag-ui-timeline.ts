@@ -6,6 +6,17 @@ function humanizeToolName(value: string | undefined): string {
   return value.replace(/[-_]+/g, " ");
 }
 
+function isLowSignalToolEvent(event: AgUiEvent): boolean {
+  if (!event.type.startsWith("TOOL_CALL")) {
+    return false;
+  }
+  return true;
+}
+
+function hasOutstandingPrompts(event: AgUiEvent): boolean {
+  return Array.isArray(event.value?.prompts) && event.value.prompts.length > 0;
+}
+
 export type AgUiTimelineItem = {
   kind: "message" | "tool" | "reasoning" | "control" | "event";
   title: string;
@@ -16,13 +27,34 @@ export type AgUiTimelineItem = {
 };
 
 function hiddenInPrimaryFeed(event: AgUiEvent): boolean {
-  return event.type === "RAW" || event.type === "STEP_STARTED" || event.type === "STEP_FINISHED" || (event.type === "CUSTOM" && ["otto.exec_start", "otto.exec_result", "otto.run_finished"].includes(event.name || ""));
+  return event.type === "RAW"
+    || event.type === "STEP_STARTED"
+    || event.type === "STEP_FINISHED"
+    || isLowSignalToolEvent(event)
+    || (event.type === "CUSTOM" && ["otto.exec_start", "otto.exec_result", "otto.run_finished", "otto.phase_entered"].includes(event.name || ""))
+    || (event.type === "CUSTOM" && event.name === "otto.control_plane" && !hasOutstandingPrompts(event));
 }
 
 export function splitAgUiEvents(events: AgUiEvent[]): { primary: AgUiEvent[]; debug: AgUiEvent[] } {
+  const primary = events.filter((event) => !hiddenInPrimaryFeed(event));
+  const debug = events.filter((event) => hiddenInPrimaryFeed(event));
+  if (primary.length > 0) {
+    return { primary, debug };
+  }
+
+  const fallbackPrimary = events.filter((event) => {
+    if (event.type === "RUN_STARTED" || event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") {
+      return true;
+    }
+    if (event.type === "CUSTOM" && (event.name === "otto.phase_entered" || (event.name === "otto.control_plane" && hasOutstandingPrompts(event)))) {
+      return true;
+    }
+    return event.type.startsWith("TEXT_MESSAGE");
+  });
+
   return {
-    primary: events.filter((event) => !hiddenInPrimaryFeed(event)),
-    debug: events.filter((event) => hiddenInPrimaryFeed(event)),
+    primary: fallbackPrimary,
+    debug: debug.filter((event) => !fallbackPrimary.includes(event)),
   };
 }
 
@@ -47,6 +79,31 @@ function consumeMessageEvent(items: AgUiTimelineItem[], byMessageId: Map<string,
     items.push(existing);
   }
   return true;
+}
+
+function finalizeMessageItems(items: AgUiTimelineItem[]): AgUiTimelineItem[] {
+  return items.map((item) => {
+    if (item.kind !== "message") {
+      return item;
+    }
+    const body = item.body.trim();
+    if (!body) {
+      return item;
+    }
+    const compact = body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (compact.length <= 160 && !body.includes("\n")) {
+      return {
+        ...item,
+        title: compact,
+        body: "",
+        meta: item.meta || "Otto",
+      };
+    }
+    return {
+      ...item,
+      meta: item.meta || "Otto",
+    };
+  });
 }
 
 function consumeToolEvent(items: AgUiTimelineItem[], byToolId: Map<string, AgUiTimelineItem>, event: AgUiEvent): boolean {
@@ -119,5 +176,5 @@ export function buildAgUiTimeline(runId: string, events: AgUiEvent[]): AgUiTimel
     });
   }
 
-  return items.filter((item) => item.body || item.kind !== "message");
+  return finalizeMessageItems(items).filter((item) => item.body || item.kind !== "message" || item.title);
 }

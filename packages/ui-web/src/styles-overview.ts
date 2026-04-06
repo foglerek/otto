@@ -238,6 +238,19 @@ export const UI_WEB_STYLES_OVERVIEW = `.project-shell {
   background: rgba(8, 12, 18, 0.42);
 }
 
+.project-story-header {
+  display: grid;
+  gap: 6px;
+}
+
+.project-story-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
 .project-story-running .project-story-marker {
   background: rgba(88, 166, 255, 0.95);
 }

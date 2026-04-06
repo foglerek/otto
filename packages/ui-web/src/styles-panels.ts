@@ -209,6 +209,25 @@ export const UI_WEB_STYLES_PANELS = `.grid-two {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.timeline-entry-header {
+  display: grid;
+  gap: 6px;
+}
+
+.timeline-entry-title {
+  font-size: 15px;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+.timeline-entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
 .timeline-entry-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

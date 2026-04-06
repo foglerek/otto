@@ -1,5 +1,10 @@
-import { truncateText } from "./helpers.js";
+import { presentStageName, truncateText } from "./helpers.js";
 import type { AgUiEvent } from "./types.js";
+
+function humanizeToolName(value: string | undefined): string {
+  if (!value) return "tool";
+  return value.replace(/[-_]+/g, " ");
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -27,10 +32,11 @@ function summarizeMessageEvent(event: AgUiEvent) {
 }
 
 function summarizeToolEvent(event: AgUiEvent) {
-  if (event.type === "TOOL_CALL_START") return { title: `Starting ${String(event.toolCallName || "tool")}`, meta: "", body: `Otto started ${String(event.toolCallName || event.toolCallId || "a tool call")}.` };
-  if (event.type === "TOOL_CALL_ARGS") return { title: `Preparing ${String(event.toolCallName || "tool")}`, meta: "", body: summarizeToolArgs(event.delta) };
-  if (event.type === "TOOL_CALL_RESULT") return { title: `Finished ${String(event.toolCallName || "tool")}`, meta: "", body: truncateText(String(event.content || ""), 1200) };
-  if (event.type === "TOOL_CALL_END") return { title: `Completed ${String(event.toolCallName || "tool")}`, meta: "", body: "" };
+  const toolName = humanizeToolName(asString(event.toolCallName));
+  if (event.type === "TOOL_CALL_START") return { title: `Starting ${toolName}`, meta: "", body: `Otto started ${toolName}.` };
+  if (event.type === "TOOL_CALL_ARGS") return { title: `Preparing ${toolName}`, meta: "", body: summarizeToolArgs(event.delta) };
+  if (event.type === "TOOL_CALL_RESULT") return { title: `Finished ${toolName}`, meta: "", body: truncateText(String(event.content || ""), 1200) };
+  if (event.type === "TOOL_CALL_END") return { title: `Completed ${toolName}`, meta: "", body: "" };
   return null;
 }
 
@@ -75,13 +81,13 @@ function summarizeCustomEvent(event: AgUiEvent) {
 
 function summarizeReasoningEvent(event: AgUiEvent) {
   const value = asRecord(event.value);
-  return { title: "Thinking", meta: "", body: truncateText(asString(value?.text) || JSON.stringify(event.value || {}, null, 2), 1200) };
+  return { title: "Thinking...", meta: "", body: truncateText(asString(value?.text) || JSON.stringify(event.value || {}, null, 2), 1200) };
 }
 
 function summarizeControlPlaneEvent(event: AgUiEvent) {
   const jobs = Array.isArray(event.value?.jobs) ? event.value.jobs.length : 0;
   const prompts = Array.isArray(event.value?.prompts) ? event.value.prompts.length : 0;
-  return { title: prompts > 0 ? "Waiting for operator" : "Control plane update", meta: `jobs ${jobs} / prompts ${prompts}`, body: prompts > 0 ? `Operator input is required for ${prompts} prompt${prompts === 1 ? "" : "s"}.` : `No outstanding prompts. ${jobs} tracked job${jobs === 1 ? "" : "s"}.` };
+  return { title: prompts > 0 ? "Waiting for your input" : "Control plane update", meta: `jobs ${jobs} / prompts ${prompts}`, body: prompts > 0 ? `Otto needs a response for ${prompts} prompt${prompts === 1 ? "" : "s"}.` : `No outstanding prompts. ${jobs} tracked job${jobs === 1 ? "" : "s"}.` };
 }
 
 function summarizePhaseTransition(event: AgUiEvent) {
@@ -89,7 +95,11 @@ function summarizePhaseTransition(event: AgUiEvent) {
   const data = asRecord(value?.data);
   const from = asString(data?.from);
   const to = asString(data?.to);
-  return { title: to ? `Moved into ${to}` : "Workflow phase changed", meta: "", body: from && to ? `Workflow moved from ${from} to ${to}.` : "Workflow phase changed." };
+  return {
+    title: to ? `Moved into ${presentStageName(to)}` : "Workflow phase changed",
+    meta: "",
+    body: from && to ? `Workflow moved from ${presentStageName(from)} to ${presentStageName(to)}.` : "Workflow phase changed.",
+  };
 }
 
 function summarizePhaseEntered(event: AgUiEvent) {
@@ -97,7 +107,11 @@ function summarizePhaseEntered(event: AgUiEvent) {
   const data = asRecord(value?.data);
   const phase = asString(data?.phase);
   const step = data?.step;
-  return { title: phase ? `Starting ${phase}` : "Entered workflow phase", meta: "", body: phase ? `Entered ${phase}${typeof step === "number" ? ` (step ${step})` : ""}.` : "Entered a workflow phase." };
+  return {
+    title: phase ? `Started ${presentStageName(phase)}` : "Entered workflow phase",
+    meta: "",
+    body: phase ? `Entered ${presentStageName(phase)}${typeof step === "number" ? ` (step ${step})` : ""}.` : "Entered a workflow phase.",
+  };
 }
 
 function summarizeExecStart(event: AgUiEvent) {
